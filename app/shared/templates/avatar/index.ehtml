@@ -1,0 +1,8 @@
+import "./style.css";
+import { avatarHue, initials } from "#app/shared/services/format";
+
+<Avatar (id: string, name: string, small: boolean = false)>
+  <span class={["avatar", small && "is-sm"]} style={`--hue: ${avatarHue(id)}`} title={name} aria-hidden="true">
+    {initials(name)}
+  </span>
+</Avatar>

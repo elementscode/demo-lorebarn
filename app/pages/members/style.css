@@ -1,0 +1,59 @@
+@import "#app/shared/styles/page.css";
+
+.members {
+  max-width: 52rem;
+}
+
+.members-list li,
+.invites-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+}
+
+.members-list li + li,
+.invites-list li + li {
+  border-top: 1px solid var(--rule);
+}
+
+.member-who {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: var(--leading-tight);
+}
+
+.member-who small {
+  color: var(--ink-soft);
+  font-size: var(--text-xs);
+}
+
+.members-list select {
+  flex: none;
+  width: 8rem;
+}
+
+.invite-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 9rem auto;
+  gap: var(--space-3);
+  align-items: end;
+}
+
+.invite-link {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  word-break: break-all;
+}
+
+@media (max-width: 40rem) {
+  .invite-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .invites-list li {
+    flex-wrap: wrap;
+  }
+}

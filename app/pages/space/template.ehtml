@@ -1,0 +1,60 @@
+import "./style.css";
+import { LiveView, redirect, session } from "@elements/app";
+import favicon from "#app/shared/assets/favicons/favicon.svg";
+import { Layout } from "#app/shared/templates/layout";
+import { Page, Space, buildTree, flattenTree, pageUrl } from "#app/shared/services/pages";
+import { timeAgo } from "#app/shared/services/format";
+
+function onNewPageClick(tree: LiveView<Page>, space: Space) {
+  let page = tree.insert({
+    spaceSlug: space.slug,
+    parentId: null,
+    position: Number.MAX_SAFE_INTEGER,
+    title: "Untitled",
+    body: "",
+    version: 1,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    updatedByName: session.get("userName") ?? null,
+  });
+
+  redirect(`${pageUrl(page)}?edit=1`);
+}
+
+<html lang="en" class="page-space" (spaces: Space[], space: Space, tree: LiveView<Page>)>
+  <head>
+    <title>{space.name} · lorebarn</title>
+    <meta name="description" content={space.description}>
+    <link rel="icon" type="image/svg+xml" href={favicon} />
+  </head>
+  <body>
+    <Layout spaces={spaces} activeSlug={space.slug} tree={tree}>
+      <div class="space-view stack is-lg">
+        <header class="space-head">
+          <div class="stack is-xs">
+            <p class="eyebrow">Space</p>
+            <h1 class="space-title">{space.name}</h1>
+            <p class="text-ink-soft">{space.description}</p>
+          </div>
+
+          <button class="is-primary" onclick={() => onNewPageClick(tree, space)}>New page</button>
+        </header>
+
+        <div class="card">
+          <p e:if={tree.length === 0} class="card-body text-ink-soft">No pages in this space yet.</p>
+
+          <ul e:else class="space-tree plain-list">
+            <li e:for={node of flattenTree(buildTree(tree))}
+                class={[node.depth === 0 && "is-root"]}
+                style={`--depth: ${node.depth}`}>
+              <a href={pageUrl(node.page)}>
+                <span class="node-title truncate">{node.page.title}</span>
+                <span class="node-meta">{node.page.updatedByName ?? "Someone"} · {timeAgo(node.page.updatedAt)}</span>
+              </a>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </Layout>
+  </body>
+</html>

@@ -1,0 +1,89 @@
+import "./style.css";
+import { LiveView, session } from "@elements/app";
+import favicon from "#app/shared/assets/favicons/favicon.svg";
+import { Layout } from "#app/shared/templates/layout";
+import { Avatar } from "#app/shared/templates/avatar";
+import { Page, Space, pageUrl } from "#app/shared/services/pages";
+import { excerpt, timeAgo } from "#app/shared/services/format";
+
+export interface SpaceSummary extends Space {
+  pageCount: number;
+}
+
+function greeting(now: Date): string {
+  let hour = now.getHours();
+
+  if (hour < 12) {
+    return "Good morning";
+  }
+
+  return hour < 18 ? "Good afternoon" : "Good evening";
+}
+
+function firstName(name: string | undefined): string {
+  return (name ?? "").split(" ")[0];
+}
+
+function spaceName(spaces: SpaceSummary[], spaceId: string): string {
+  return spaces.find((s) => s.id === spaceId)?.name ?? "";
+}
+
+function byRecent(a: Page, b: Page): number {
+  return +b.updatedAt - +a.updatedAt;
+}
+
+<html lang="en" class="page-home" (spaces: SpaceSummary[], recent: LiveView<Page>)>
+  <head>
+    <title>Home · lorebarn</title>
+    <meta name="description" content="Recently edited pages across every space.">
+    <link rel="icon" type="image/svg+xml" href={favicon} />
+  </head>
+  <body>
+    <Layout spaces={spaces} section="home">
+      <div class="home-head stack is-xs">
+        <h1 class="home-greeting">{greeting(new Date())}, {firstName(session.get("userName"))}</h1>
+        <p class="text-ink-soft">Here's what the team has been writing.</p>
+      </div>
+
+      <div class="home-grid">
+        <section class="stack is-sm">
+          <h2 class="text-lg">Recently edited</h2>
+
+          <div class="card">
+            <p e:if={recent.length === 0} class="card-body text-ink-soft">No pages yet.</p>
+
+            <ul e:else class="home-recent plain-list">
+              <li e:for={page of recent.sort(byRecent)}>
+                <a class="recent-item" href={pageUrl(page)}>
+                  <span class="recent-title">{page.title}</span>
+                  <span e:if={page.body} class="recent-excerpt line-clamp-2">{excerpt(page.body, 180)}</span>
+                  <span class="recent-meta row">
+                    <span class="pill">{spaceName(spaces, page.spaceId)}</span>
+                    <Avatar id={page.updatedBy ?? ""} name={page.updatedByName ?? "?"} small={true} />
+                    <span>{page.updatedByName ?? "Someone"} · {timeAgo(page.updatedAt)} · v{page.version}</span>
+                  </span>
+                </a>
+              </li>
+            </ul>
+          </div>
+        </section>
+
+        <section class="stack is-sm">
+          <h2 class="text-lg">Spaces</h2>
+
+          <ul class="card home-spaces plain-list">
+            <li e:for={space of spaces}>
+              <a class="space-card" href={`/s/${space.slug}`}>
+                <span class="space-card-name row">
+                  {space.name}
+                  <span class="pill">{space.pageCount} pages</span>
+                </span>
+                <p class="space-card-desc">{space.description}</p>
+              </a>
+            </li>
+          </ul>
+        </section>
+      </div>
+    </Layout>
+  </body>
+</html>
