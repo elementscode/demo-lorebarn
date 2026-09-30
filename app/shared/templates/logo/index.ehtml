@@ -1,0 +1,8 @@
+<Logo (size: number = 28)>
+  <svg class="logo" width={size} height={size} viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+    <path d="M4 14 L16 5 L28 14 V28 H4 Z" fill="var(--accent)"/>
+    <path d="M11 28 V19 H21 V28" fill="none" stroke="var(--accent-ink)" stroke-width="2"/>
+    <path d="M11 19 L21 28 M21 19 L11 28" stroke="var(--accent-ink)" stroke-width="1.6"/>
+    <rect x="13.5" y="10.5" width="5" height="4" rx="0.5" fill="var(--accent-ink)"/>
+  </svg>
+</Logo>

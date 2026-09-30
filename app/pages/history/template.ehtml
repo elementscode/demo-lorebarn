@@ -1,0 +1,255 @@
+import "./style.css";
+import { LiveView, NotFoundError, raw, redirect, session, sql } from "@elements/app";
+import favicon from "#app/shared/assets/favicons/favicon.svg";
+import { Layout } from "#app/shared/templates/layout";
+import { Avatar } from "#app/shared/templates/avatar";
+import { Page, Space, pageUrl, pages } from "#app/shared/services/pages";
+import { renderMarkdown } from "#app/shared/services/markdown";
+import { formatDateTime, timeAgo } from "#app/shared/services/format";
+import { DiffRow, DiffStats } from "./diff";
+
+export interface VersionItem {
+  id: string;
+  version: number;
+  title: string;
+  authorId: string | null;
+  authorName: string | null;
+  note: string;
+  createdAt: Date;
+}
+
+export interface Snapshot {
+  version: number;
+  title: string;
+  body: string;
+}
+
+export interface Comparison {
+  from: Snapshot;
+  to: Snapshot;
+  rows: DiffRow[];
+  stats: DiffStats;
+}
+
+interface RestoreState {
+  busy: boolean;
+  error: string;
+}
+
+/** @rpc */
+export function restoreVersion(pageId: string, version: number) {
+  let userId = session.getOrThrow("userId");
+
+  let snapshot = sql<Snapshot>(`
+    select version, title, body from pageVersions where pageId = ${pageId} and version = ${version}
+  `).firstOrThrow("version not found");
+
+  let { spaceId } = sql<{ spaceId: string }>(`select spaceId from pages where id = ${pageId}`)
+    .firstOrThrow("page not found");
+
+  // Written through the space's view so every open tree, page and home
+  // screen hears about it, the same as a save from the editor.
+  let tree = pages.view({ spaceId });
+  let page = tree.get(pageId);
+
+  if (!page) {
+    throw new NotFoundError("page not found");
+  }
+
+  if (page.title === snapshot.title && page.body === snapshot.body) {
+    redirect(pageUrl(page));
+    return;
+  }
+
+  let saved = tree.update({ ...page, title: snapshot.title, body: snapshot.body });
+
+  sql(`
+    update pageVersions set note = ${`Restored from version ${version}`}
+     where pageId = ${pageId} and version = ${saved.version} and authorId = ${userId}
+  `);
+
+  redirect(pageUrl(page));
+}
+
+function onRestoreClick(pageId: string, version: number, state: RestoreState) {
+  if (!confirm(`Restore version ${version}? It becomes a new version, so nothing is lost.`)) {
+    return;
+  }
+
+  state.busy = true;
+
+  try {
+    restoreVersion(pageId, version);
+  } catch (err: any) {
+    state.error = err.message;
+    state.busy = false;
+  }
+}
+
+function compareUrl(page: Page, from: number, to: number): string {
+  return `${pageUrl(page)}/history?from=${from}&to=${to}`;
+}
+
+function onFromChange(page: Page, value: string, to: number) {
+  redirect(compareUrl(page, Number(value), to));
+}
+
+function onToChange(page: Page, from: number, value: string) {
+  redirect(compareUrl(page, from, Number(value)));
+}
+
+function findPage(tree: LiveView<Page>, pageId: string): Page | undefined {
+  return tree.find((p) => p.id === pageId);
+}
+
+function rowSign(row: DiffRow): string {
+  return row.kind === "add" ? "+" : row.kind === "del" ? "−" : "";
+}
+
+<html lang="en" class="page-history" (
+  spaces: Space[],
+  space: Space,
+  tree: LiveView<Page>,
+  pageId: string,
+  versions: VersionItem[],
+  comparison: Comparison,
+  mode: string,
+  private restore: RestoreState = { busy: false, error: "" },
+)>
+  <head>
+    <title>History · {findPage(tree, pageId)?.title ?? "Page"} · lorebarn</title>
+    <link rel="icon" type="image/svg+xml" href={favicon} />
+  </head>
+  <body>
+    <Layout spaces={spaces} activeSlug={space.slug} tree={tree} activePageId={pageId}>
+      <div e:if={!findPage(tree, pageId)} class="callout is-warning">
+        <div class="callout-title">This page was deleted</div>
+        <div class="callout-body"><a href={`/s/${space.slug}`}>Back to {space.name}</a></div>
+      </div>
+
+      <div e:else class="history stack is-lg">
+        <header class="stack is-xs">
+          <a class="link-muted text-sm" href={pageUrl(findPage(tree, pageId)!)}>← Back to page</a>
+          <h1 class="text-3xl">History of {findPage(tree, pageId)!.title}</h1>
+          <p class="text-ink-soft">
+            {versions.length} versions. Every save is kept; pick two to compare, or restore an older one.
+          </p>
+        </header>
+
+        <div e:if={findPage(tree, pageId)!.version > versions[0].version} class="callout is-info">
+          <div class="callout-body">
+            {findPage(tree, pageId)!.updatedByName ?? "Someone"} just saved version {findPage(tree, pageId)!.version}.
+            <a href={`${pageUrl(findPage(tree, pageId)!)}/history`}>Show it</a>
+          </div>
+        </div>
+
+        <div class="history-grid">
+          <ol class="card history-list plain-list">
+            <li e:for={v of versions}>
+              <a href={compareUrl(findPage(tree, pageId)!, Math.max(1, v.version - 1), v.version)}
+                 class={[v.version === comparison.to.version && "is-active"]}>
+                <Avatar id={v.authorId ?? ""} name={v.authorName ?? "?"} small={true} />
+                <span class="v-main">
+                  <span class="v-title">
+                    Version {v.version}
+                    <span e:if={v.version === versions[0].version} class="pill is-accent">current</span>
+                  </span>
+                  <span class="v-meta" title={formatDateTime(v.createdAt)}>
+                    {v.authorName ?? "Someone"} · {timeAgo(v.createdAt)}
+                  </span>
+                  <span e:if={v.note} class="v-meta">{v.note}</span>
+                </span>
+              </a>
+            </li>
+          </ol>
+
+          <section class="stack">
+            <div class="history-compare row">
+              <div class="row gap-2 text-sm">
+                <span>Compare</span>
+                <select class="is-sm"
+                        aria-label="Older version"
+                        onchange={(e) => onFromChange(findPage(tree, pageId)!, (e.target as HTMLSelectElement).value, comparison.to.version)}>
+                  <option e:for={v of versions} value={String(v.version)} selected={v.version === comparison.from.version}>
+                    v{v.version}
+                  </option>
+                </select>
+                <span>with</span>
+                <select class="is-sm"
+                        aria-label="Newer version"
+                        onchange={(e) => onToChange(findPage(tree, pageId)!, comparison.from.version, (e.target as HTMLSelectElement).value)}>
+                  <option e:for={v of versions} value={String(v.version)} selected={v.version === comparison.to.version}>
+                    v{v.version}
+                  </option>
+                </select>
+              </div>
+
+              <div class="row gap-2">
+                <div class="tabs">
+                  <div class="tab-list">
+                    <a class={["tab", mode !== "read" && "is-active"]}
+                       href={`${compareUrl(findPage(tree, pageId)!, comparison.from.version, comparison.to.version)}`}>Changes</a>
+                    <a class={["tab", mode === "read" && "is-active"]}
+                       href={`${compareUrl(findPage(tree, pageId)!, comparison.from.version, comparison.to.version)}&mode=read`}>Version {comparison.to.version}</a>
+                  </div>
+                </div>
+
+                <button e:if={comparison.to.version !== findPage(tree, pageId)!.version}
+                        class={["is-primary is-sm", restore.busy && "is-loading"]}
+                        disabled={restore.busy}
+                        onclick={() => onRestoreClick(pageId, comparison.to.version, restore)}>
+                  Restore v{comparison.to.version}
+                </button>
+              </div>
+            </div>
+
+            <div e:if={restore.error} class="callout is-danger" role="alert">
+              <div class="callout-body">{restore.error}</div>
+            </div>
+
+            <div e:if={mode === "read"} class="card">
+              <div class="card-body stack">
+                <h2 class="text-2xl">{comparison.to.title}</h2>
+                <div class="markdown prose">{raw(renderMarkdown(comparison.to.body))}</div>
+              </div>
+            </div>
+
+            <div e:else class="card">
+              <div class="diff-title row gap-3">
+                <span class="diff-stats row gap-2">
+                  <span class="add">+{comparison.stats.added}</span>
+                  <span class="del">−{comparison.stats.removed}</span>
+                  <span class="text-ink-soft">v{comparison.from.version} → v{comparison.to.version}</span>
+                </span>
+                <span e:if={comparison.from.title !== comparison.to.title}>
+                  Title: <del>{comparison.from.title}</del> → <ins>{comparison.to.title}</ins>
+                </span>
+              </div>
+
+              <p e:if={comparison.rows.every((r) => r.kind === "same" || r.kind === "gap")} class="history-same">
+                {comparison.from.version === comparison.to.version ? "Pick two different versions to see what changed." : "The body is the same in both versions."}
+              </p>
+
+              <div e:else class="diff" role="table" aria-label="Changes">
+                <div e:for={row of comparison.rows} class={["diff-row", `is-${row.kind}`]} role="row">
+                  <span e:if={row.kind === "gap"}>⋯ {row.parts[0].text}</span>
+                  <span e:if={row.kind !== "gap"} class="no">{row.oldNo ?? ""}</span>
+                  <span e:if={row.kind !== "gap"} class="no">{row.newNo ?? ""}</span>
+                  <span e:if={row.kind !== "gap"} class="sign">{rowSign(row)}</span>
+                  <span e:if={row.kind !== "gap"} class="text"><DiffText parts={row.parts} /></span>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </Layout>
+  </body>
+</html>
+
+<DiffText (parts: { text: string; changed: boolean }[])>
+  <span e:for={part of parts.map((p, i) => ({ ...p, id: String(i) }))}>
+    <mark e:if={part.changed}>{part.text}</mark>
+    <span e:else>{part.text}</span>
+  </span>
+</DiffText>

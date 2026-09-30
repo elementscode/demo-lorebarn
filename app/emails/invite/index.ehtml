@@ -1,0 +1,16 @@
+import "./style.css";
+
+/**
+ * Sent when an admin invites someone. The link is root-relative; the email
+ * build prefixes it with the app's url.
+ *
+ * @email
+ */
+<html (inviterName: string, link: string, role: string)>
+  <body class="email invite">
+    <h1>You're invited to lorebarn</h1>
+    <p>{inviterName} invited you to join your team's wiki as {role === "admin" ? "an admin" : "a member"}.</p>
+    <p><a class="button" href={link}>Accept the invite</a></p>
+    <p class="muted">The link is just for you. It stops working once you've set up your account.</p>
+  </body>
+</html>

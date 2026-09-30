@@ -1,0 +1,6 @@
+@import "#app/shared/styles/email.css";
+
+.email.invite .muted {
+  color: #6b7280;
+  font-size: 13px;
+}

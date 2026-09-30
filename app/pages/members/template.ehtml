@@ -1,0 +1,240 @@
+import "./style.css";
+import { ValidationError, email, getAppUrl, session, sql } from "@elements/app";
+import favicon from "#app/shared/assets/favicons/favicon.svg";
+import InviteEmail from "#app/emails/invite";
+import { Layout } from "#app/shared/templates/layout";
+import { Avatar } from "#app/shared/templates/avatar";
+import { Space } from "#app/shared/services/pages";
+import { isEmail, normalizeEmail, requireAdmin } from "#app/shared/services/auth";
+import { timeAgo } from "#app/shared/services/format";
+
+export interface Member {
+  id: string;
+  name: string;
+  email: string;
+  role: "admin" | "member";
+  createdAt: Date;
+}
+
+export interface PendingInvite {
+  id: string;
+  email: string;
+  role: "admin" | "member";
+  token: string;
+  invitedByName: string;
+  createdAt: Date;
+}
+
+export interface Roster {
+  members: Member[];
+  invites: PendingInvite[];
+}
+
+interface InviteForm {
+  email: string;
+  role: string;
+  error: string;
+  notice: string;
+  busy: boolean;
+}
+
+export function loadRoster(): Roster {
+  return {
+    members: sql<Member>(`select id, name, email, role, createdAt from users order by role desc, name`).all(),
+    invites: sql<PendingInvite>(`
+      select i.id, i.email, i.role, i.token, u.name as invitedByName, i.createdAt
+      from invites i
+      join users u on u.id = i.invitedBy
+      where i.acceptedAt is null
+      order by i.createdAt desc
+    `).all(),
+  };
+}
+
+/** @rpc */
+export function sendInvite(address: string, role: string): Roster {
+  let adminId = requireAdmin();
+  let to = normalizeEmail(address);
+
+  if (!isEmail(to)) {
+    throw new ValidationError("Enter a valid email address.");
+  }
+
+  if (role !== "admin" && role !== "member") {
+    throw new ValidationError("Pick a role.");
+  }
+
+  if (!sql(`select 1 from users where email = ${to}`).empty()) {
+    throw new ValidationError(`${to} already has an account.`);
+  }
+
+  // Inviting the same address again replaces the old link, so only the
+  // newest email works.
+  sql(`delete from invites where email = ${to} and acceptedAt is null`);
+
+  let invite = sql<{ token: string }>(`
+    insert into invites (email, role, invitedBy) values (${to}, ${role}, ${adminId}) returning token
+  `).firstOrThrow();
+
+  email({
+    to,
+    subject: `${session.getOrThrow("userName")} invited you to lorebarn`,
+    body: new InviteEmail({ inviterName: session.getOrThrow("userName"), link: `/invite/${invite.token}`, role }),
+  });
+
+  return loadRoster();
+}
+
+/** @rpc */
+export function revokeInvite(inviteId: string): Roster {
+  requireAdmin();
+  sql(`delete from invites where id = ${inviteId} and acceptedAt is null`);
+
+  return loadRoster();
+}
+
+/** @rpc */
+export function setRole(userId: string, role: "admin" | "member"): Roster {
+  let adminId = requireAdmin();
+
+  if (userId === adminId && role !== "admin") {
+    throw new ValidationError("You can't remove your own admin role.");
+  }
+
+  sql(`update users set role = ${role} where id = ${userId}`);
+
+  return loadRoster();
+}
+
+function onInviteSubmit(form: InviteForm, roster: { value: Roster }) {
+  form.busy = true;
+  form.error = "";
+
+  try {
+    let sentTo = normalizeEmail(form.email);
+    roster.value = sendInvite(form.email, form.role);
+    form.notice = `Invite sent to ${sentTo}.`;
+    form.email = "";
+  } catch (err: any) {
+    form.error = err.message;
+    form.notice = "";
+  }
+
+  form.busy = false;
+}
+
+function onRevokeClick(invite: PendingInvite, roster: { value: Roster }) {
+  if (confirm(`Revoke the invite for ${invite.email}?`)) {
+    roster.value = revokeInvite(invite.id);
+  }
+}
+
+function onRoleChange(member: Member, value: string, roster: { value: Roster }, form: InviteForm) {
+  try {
+    roster.value = setRole(member.id, value as "admin" | "member");
+    form.error = "";
+  } catch (err: any) {
+    form.error = err.message;
+    roster.value = { ...roster.value };
+  }
+}
+
+function inviteLink(appUrl: string, invite: PendingInvite): string {
+  return `${appUrl}/invite/${invite.token}`;
+}
+
+function onCopyClick(appUrl: string, invite: PendingInvite, copied: { id: string }) {
+  navigator.clipboard.writeText(inviteLink(appUrl, invite));
+  copied.id = invite.id;
+}
+
+<html lang="en" class="page-members" (
+  spaces: Space[],
+  initial: Roster,
+  appUrl: string,
+  private roster: { value: Roster } = { value: initial },
+  private form: InviteForm = { email: "", role: "member", error: "", notice: "", busy: false },
+  private copied: { id: string } = { id: "" },
+)>
+  <head>
+    <title>Members · lorebarn</title>
+    <link rel="icon" type="image/svg+xml" href={favicon} />
+  </head>
+  <body>
+    <Layout spaces={spaces} section="members">
+      <div class="members stack is-xl">
+        <header class="stack is-xs">
+          <h1 class="text-3xl">Members</h1>
+          <p class="text-ink-soft">Invite teammates by email. Admins can invite people and change roles.</p>
+        </header>
+
+        <section class="card">
+          <div class="card-head">
+            <h2 class="text-base">Invite someone</h2>
+          </div>
+          <div class="card-body stack">
+            <form class="invite-form" onsubmit={() => onInviteSubmit(form, roster)}>
+              <div class="field">
+                <label for="invite-email">Email</label>
+                <input id="invite-email" type="email" value={form.email} placeholder="teammate@company.com" autocomplete="off" required>
+              </div>
+
+              <div class="field">
+                <label for="invite-role">Role</label>
+                <select id="invite-role" value={form.role}>
+                  <option value="member">Member</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+
+              <button type="submit" class={["is-primary", form.busy && "is-loading"]} disabled={form.busy}>Send invite</button>
+            </form>
+
+            <div e:if={form.error} class="callout is-danger" role="alert">
+              <div class="callout-body">{form.error}</div>
+            </div>
+
+            <div e:if={form.notice && !form.error} class="callout is-success" role="status">
+              <div class="callout-body">{form.notice}</div>
+            </div>
+          </div>
+        </section>
+
+        <section e:if={roster.value.invites.length > 0} class="stack is-sm">
+          <h2 class="text-lg">Pending invites</h2>
+          <ul class="card invites-list plain-list">
+            <li e:for={invite of roster.value.invites}>
+              <span class="member-who">
+                <span>{invite.email}</span>
+                <small>{invite.role} · invited by {invite.invitedByName} {timeAgo(invite.createdAt)}</small>
+              </span>
+              <button class="is-sm" onclick={() => onCopyClick(appUrl, invite, copied)}>
+                {copied.id === invite.id ? "Copied" : "Copy link"}
+              </button>
+              <button class="is-sm is-ghost" onclick={() => onRevokeClick(invite, roster)}>Revoke</button>
+            </li>
+          </ul>
+        </section>
+
+        <section class="stack is-sm">
+          <h2 class="text-lg">People <span class="pill">{roster.value.members.length}</span></h2>
+          <ul class="card members-list plain-list">
+            <li e:for={member of roster.value.members}>
+              <Avatar id={member.id} name={member.name} />
+              <span class="member-who">
+                <span>{member.name} <span e:if={member.id === session.get("userId")} class="text-ink-soft text-sm">(you)</span></span>
+                <small>{member.email} · joined {timeAgo(member.createdAt)}</small>
+              </span>
+              <select class="is-sm"
+                      aria-label={`Role for ${member.name}`}
+                      onchange={(e) => onRoleChange(member, (e.target as HTMLSelectElement).value, roster, form)}>
+                <option value="member" selected={member.role === "member"}>Member</option>
+                <option value="admin" selected={member.role === "admin"}>Admin</option>
+              </select>
+            </li>
+          </ul>
+        </section>
+      </div>
+    </Layout>
+  </body>
+</html>

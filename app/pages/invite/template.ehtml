@@ -1,0 +1,133 @@
+import "./style.css";
+import { AuthError, ValidationError, redirect, session, sql, tx } from "@elements/app";
+import favicon from "#app/shared/assets/favicons/favicon.svg";
+import { Logo } from "#app/shared/templates/logo";
+import { MIN_PASSWORD } from "#app/shared/services/auth";
+
+export interface InviteInfo {
+  email: string;
+  role: "admin" | "member";
+  invitedByName: string;
+}
+
+interface AcceptForm {
+  name: string;
+  password: string;
+  error: string;
+  busy: boolean;
+}
+
+export function findInvite(token: string): InviteInfo | undefined {
+  return sql<InviteInfo>(`
+    select i.email, i.role, u.name as invitedByName
+    from invites i
+    join users u on u.id = i.invitedBy
+    where i.token = ${token} and i.acceptedAt is null
+  `).first();
+}
+
+/** @rpc */
+export function acceptInvite(token: string, name: string, password: string) {
+  let clean = name.trim();
+
+  if (!clean) {
+    throw new ValidationError("Tell your team what to call you.");
+  }
+
+  if (password.length < MIN_PASSWORD) {
+    throw new ValidationError(`Use at least ${MIN_PASSWORD} characters for your password.`);
+  }
+
+  let user = tx(() => {
+    let invite = sql<{ id: string; email: string; role: "admin" | "member" }>(`
+      select id, email, role from invites where token = ${token} and acceptedAt is null for update
+    `).first();
+
+    if (!invite) {
+      throw new AuthError("This invite has already been used or was revoked.");
+    }
+
+    if (!sql(`select 1 from users where email = ${invite.email}`).empty()) {
+      throw new ValidationError("That email already has an account. Sign in instead.");
+    }
+
+    sql(`update invites set acceptedAt = now() where id = ${invite.id}`);
+
+    return sql<{ id: string; role: "admin" | "member" }>(`
+      insert into users (email, name, passwordHash, role)
+           values (${invite.email}, ${clean}, crypt(${password}, genSalt('bf', 12)), ${invite.role})
+      returning id, role
+    `).firstOrThrow();
+  });
+
+  session.login({ userId: user.id, userName: clean, role: user.role });
+}
+
+function onSubmit(token: string, form: AcceptForm) {
+  form.busy = true;
+
+  try {
+    acceptInvite(token, form.name, form.password);
+    redirect("/");
+  } catch (err: any) {
+    form.error = err.message;
+    form.busy = false;
+  }
+}
+
+<html lang="en" class="page-signin page-invite" (
+  token: string,
+  invite: InviteInfo | null,
+  private form: AcceptForm = { name: "", password: "", error: "", busy: false },
+)>
+  <head>
+    <title>Join lorebarn</title>
+    <link rel="icon" type="image/svg+xml" href={favicon} />
+  </head>
+  <body>
+    <main class="center">
+      <div class="signin-wrap stack is-lg">
+        <div class="signin-brand row">
+          <Logo size={32} />
+          lorebarn
+        </div>
+
+        <div class="card">
+          <div e:if={!invite} class="card-body stack">
+            <h1 class="text-2xl">This invite has expired</h1>
+            <p class="text-ink-soft">It was already used or an admin revoked it. Ask them for a new one.</p>
+            <a class="button" href="/signin">Go to sign in</a>
+          </div>
+
+          <form e:else class="card-body stack" onsubmit={() => onSubmit(token, form)}>
+            <div class="stack is-xs">
+              <h1 class="text-2xl">Join your team</h1>
+              <p class="text-sm text-ink-soft">
+                {invite!.invitedByName} invited <strong>{invite!.email}</strong> as {invite!.role === "admin" ? "an admin" : "a member"}.
+              </p>
+            </div>
+
+            <div e:if={form.error} class="callout is-danger" role="alert">
+              <div class="callout-body">{form.error}</div>
+            </div>
+
+            <div class="field">
+              <label for="name">Your name</label>
+              <input id="name" value={form.name} autocomplete="name" placeholder="Sam Carter" required>
+            </div>
+
+            <div class="field">
+              <label for="password">Choose a password</label>
+              <input id="password" type="password" value={form.password} autocomplete="new-password" minlength={MIN_PASSWORD} required>
+              <p class="hint">At least {MIN_PASSWORD} characters.</p>
+            </div>
+
+            <button type="submit" class={["is-primary is-block", form.busy && "is-loading"]} disabled={form.busy}>
+              Create account
+            </button>
+          </form>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>

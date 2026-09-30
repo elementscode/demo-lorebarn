@@ -1,0 +1,137 @@
+import "./style.css";
+import { raw, session, sql } from "@elements/app";
+import favicon from "#app/shared/assets/favicons/favicon.svg";
+import { Layout } from "#app/shared/templates/layout";
+import { Space, pageUrl } from "#app/shared/services/pages";
+import { escapeHtml } from "#app/shared/services/markdown";
+import { timeAgo } from "#app/shared/services/format";
+
+export interface SearchResult {
+  id: string;
+  spaceSlug: string;
+  spaceName: string;
+  title: string;
+  titleHtml: string;
+  snippetHtml: string;
+  updatedAt: Date;
+  updatedByName: string | null;
+}
+
+interface SearchState {
+  q: string;
+  results: SearchResult[];
+  searched: string;
+  timer: number;
+}
+
+// Sentinels ts_headline wraps matches in. They can't occur in a page, so the
+// snippet is escaped as text first and only these become <mark>.
+const OPEN = "\u0001";
+const CLOSE = "\u0002";
+
+// Markdown punctuation, link targets, list markers and task boxes are
+// stripped before the snippet is cut, so a result reads as prose rather
+// than source.
+const MARKDOWN_MARKS = "(```[a-z]*|\\]\\([^)]*\\)|\\[[ xX]\\]|\\n\\s*[-+]\\s|[\\[\\]#*_`>|]+|-{3,})";
+
+function highlight(text: string): string {
+  return escapeHtml(text).replaceAll(OPEN, "<mark>").replaceAll(CLOSE, "</mark>");
+}
+
+/**
+ * Every word is a prefix match, so results arrive while the last word is
+ * still being typed: "runb" finds "runbook".
+ */
+export function toPrefixQuery(q: string): string {
+  let words = q.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+
+  return words.slice(0, 8).map((w) => `${w}:*`).join(" & ");
+}
+
+/** @rpc */
+export function search(q: string): SearchResult[] {
+  session.getOrThrow("userId");
+
+  let query = toPrefixQuery(q);
+
+  if (!query) {
+    return [];
+  }
+
+  let options = `StartSel=${OPEN}, StopSel=${CLOSE}, MaxWords=28, MinWords=12, MaxFragments=2, FragmentDelimiter=" … "`;
+
+  let rows = sql<SearchResult>(`
+    select p.id, s.slug as spaceSlug, s.name as spaceName, p.title, p.updatedAt,
+           u.name as updatedByName,
+           tsHeadline('english', p.title, q, 'HighlightAll=true, ' || ${`StartSel=${OPEN}, StopSel=${CLOSE}`}) as titleHtml,
+           tsHeadline('english', regexpReplace(p.body, ${MARKDOWN_MARKS}, ' ', 'g'), q, ${options}) as snippetHtml
+    from pages p
+    join spaces s on s.id = p.spaceId
+    left join users u on u.id = p.updatedBy,
+    toTsquery('english', ${query}) q
+    where p.searchVector @@ q
+    order by tsRank(p.searchVector, q) desc, p.updatedAt desc
+    limit 25
+  `).all();
+
+  return rows.map((row) => ({ ...row, titleHtml: highlight(row.titleHtml), snippetHtml: highlight(row.snippetHtml) }));
+}
+
+function onSearchInput(state: SearchState) {
+  clearTimeout(state.timer);
+  state.timer = setTimeout(() => runSearch(state), 150) as unknown as number;
+}
+
+function runSearch(state: SearchState) {
+  let q = state.q.trim();
+  state.results = q ? search(q) : [];
+  state.searched = q;
+  history.replaceState(null, "", q ? `/search?q=${encodeURIComponent(q)}` : "/search");
+}
+
+<html lang="en" class="page-search" (
+  spaces: Space[],
+  q: string,
+  results: SearchResult[],
+  private state: SearchState = { q, results, searched: q, timer: 0 },
+)>
+  <head>
+    <title>{state.searched ? `${state.searched} · Search` : "Search"} · lorebarn</title>
+    <link rel="icon" type="image/svg+xml" href={favicon} />
+  </head>
+  <body>
+    <Layout spaces={spaces} section="search">
+      <div class="search stack is-lg">
+        <h1 class="text-3xl">Search</h1>
+
+        <form class="search-box" role="search" onsubmit={() => runSearch(state)}>
+          <input type="search"
+                 value={state.q}
+                 oninput={() => onSearchInput(state)}
+                 focus={true}
+                 aria-label="Search every page"
+                 placeholder="Search titles and text across every space">
+        </form>
+
+        <p e:if={state.searched} class="text-sm text-ink-soft" aria-live="polite">
+          {state.results.length === 0 ? "No pages match" : `${state.results.length}${state.results.length === 25 ? "+" : ""} page${state.results.length === 1 ? "" : "s"} match`}
+          “{state.searched}”
+        </p>
+
+        <ul e:if={state.results.length > 0} class="card search-results plain-list">
+          <li e:for={result of state.results}>
+            <a href={pageUrl(result)}>
+              <span class="result-title">{raw(result.titleHtml)}</span>
+              <span class="result-path">{result.spaceName} · edited {timeAgo(result.updatedAt)} by {result.updatedByName ?? "someone"}</span>
+              <span class="result-snippet">{raw(result.snippetHtml)}</span>
+            </a>
+          </li>
+        </ul>
+
+        <p e:if={!state.searched} class="text-ink-soft">
+          Try <a href="/search?q=on-call">on-call</a>, <a href="/search?q=expenses">expenses</a> or <a href="/search?q=roadmap">roadmap</a>.
+        </p>
+      </div>
+    </Layout>
+  </body>
+</html>

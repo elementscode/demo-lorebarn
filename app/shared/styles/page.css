@@ -1,0 +1,8 @@
+@import "@elements/style";
+@import "./vars.css";
+
+.plain-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
