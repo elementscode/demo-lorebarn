@@ -1,12 +1,12 @@
-![Lorebarn, a team wiki built with Elements: editing a page with markdown beside its live preview, the space's page tree, and three teammates on the page with one of them editing.](POSTER_URL)
+![Lorebarn, a team wiki built with Elements: editing a page with markdown beside its live preview, the space's page tree, and three teammates on the page with one of them editing.](https://elements.dev/demos/01a0f3c9-6ed3-7a9a-b2c5-64cab23e4672/poster?v=dcea3bd94986)
 
 # Lorebarn
 
 > A demo app built with [Elements](https://elements.dev).
 
-Spaces of nested pages in markdown with a live preview, version history with diffs and restore, live presence on every page, and full-text search.
+Nested pages in markdown with live preview, version diffs and restore, presence on every page, and full-text search.
 
-**Demo:** [Lorebarn](DEMO_URL)
+**Demo:** [Lorebarn](https://elements.dev/demos/01a0f3c9-6ed3-7a9a-b2c5-64cab23e4672)
 
 ## Agent specs
 
