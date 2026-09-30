@@ -1,0 +1,437 @@
+import "./style.css";
+import { LiveView, raw, redirect, session } from "@elements/app";
+import type { Listener } from "@elements/app";
+import favicon from "#app/shared/assets/favicons/favicon.svg";
+import { Layout } from "#app/shared/templates/layout";
+import { Avatar } from "#app/shared/templates/avatar";
+import { Page, Space, ancestors, buildTree, bySiblingOrder, flattenTree, pageUrl } from "#app/shared/services/pages";
+import { PresenceEvent, PresentUser, setEditing } from "#app/shared/services/presence";
+import { renderMarkdown } from "#app/shared/services/markdown";
+import { excerpt, formatDateTime, timeAgo } from "#app/shared/services/format";
+
+export interface Draft {
+  editing: boolean;
+  title: string;
+  body: string;
+  baseVersion: number;
+  saving: boolean;
+  error: string;
+}
+
+interface MenuState {
+  error: string;
+}
+
+function findPage(tree: LiveView<Page>, pageId: string): Page | undefined {
+  return tree.find((p) => p.id === pageId);
+}
+
+/**
+ * The route builds the starting draft from the row as it was on load. A
+ * default computed from the live view here would recompute whenever someone
+ * else saves, and throw away the draft being typed.
+ */
+export function startDraft(page: { title: string; body: string; version: number }, editing: boolean): Draft {
+  return {
+    editing,
+    title: page.title,
+    body: page.body,
+    baseVersion: page.version,
+    saving: false,
+    error: "",
+  };
+}
+
+function isDirty(page: Page, draft: Draft): boolean {
+  return draft.title !== page.title || draft.body !== page.body;
+}
+
+function hasConflict(page: Page, draft: Draft): boolean {
+  return draft.editing && page.version !== draft.baseVersion;
+}
+
+function othersHere(present: PresentUser[]): PresentUser[] {
+  return present.filter((u) => u.userId !== session.get("userId"));
+}
+
+function presenceLabel(present: PresentUser[]): string {
+  let others = othersHere(present);
+
+  if (others.length === 0) {
+    return "Only you";
+  }
+
+  let editing = others.filter((u) => u.editing);
+
+  if (editing.length > 0) {
+    let names = editing.map((u) => u.userName.split(" ")[0]).join(", ");
+    return `${names} ${editing.length === 1 ? "is" : "are"} editing`;
+  }
+
+  return `${others.length} other${others.length === 1 ? "" : "s"} viewing`;
+}
+
+function presenceTitle(user: PresentUser): string {
+  return `${user.userName}${user.editing ? " (editing)" : " (viewing)"}`;
+}
+
+function onEditClick(page: Page, draft: Draft) {
+  draft.title = page.title;
+  draft.body = page.body;
+  draft.baseVersion = page.version;
+  draft.error = "";
+  draft.editing = true;
+  setEditing(page.id, true);
+}
+
+function onCancelClick(page: Page, draft: Draft) {
+  if (isDirty(page, draft) && !confirm("Discard your unsaved changes?")) {
+    return;
+  }
+
+  draft.editing = false;
+  draft.error = "";
+  setEditing(page.id, false);
+}
+
+function onSave(tree: LiveView<Page>, page: Page, draft: Draft) {
+  if (draft.saving) {
+    return;
+  }
+
+  if (!isDirty(page, draft)) {
+    draft.editing = false;
+    setEditing(page.id, false);
+    return;
+  }
+
+  draft.saving = true;
+  draft.error = "";
+
+  try {
+    tree.update({
+      ...page,
+      title: draft.title,
+      body: draft.body,
+      version: draft.baseVersion,
+      updatedAt: new Date(),
+      updatedBy: session.get("userId") ?? null,
+      updatedByName: session.get("userName") ?? null,
+    });
+
+    draft.editing = false;
+    setEditing(page.id, false);
+  } catch (err: any) {
+    draft.error = err.message;
+  }
+
+  draft.saving = false;
+}
+
+function onEditorKeydown(e: KeyboardEvent, tree: LiveView<Page>, page: Page, draft: Draft) {
+  if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+    e.preventDefault();
+    onSave(tree, page, draft);
+  }
+}
+
+function onTakeTheirs(page: Page, draft: Draft) {
+  draft.title = page.title;
+  draft.body = page.body;
+  draft.baseVersion = page.version;
+  draft.error = "";
+}
+
+function onKeepMine(page: Page, draft: Draft) {
+  draft.baseVersion = page.version;
+  draft.error = "";
+}
+
+function onAddSubpageClick(tree: LiveView<Page>, page: Page) {
+  let child = tree.insert({
+    spaceSlug: page.spaceSlug,
+    parentId: page.id,
+    position: Number.MAX_SAFE_INTEGER,
+    title: "Untitled",
+    body: "",
+    version: 1,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    updatedByName: session.get("userName") ?? null,
+  });
+
+  redirect(`${pageUrl(child)}?edit=1`);
+}
+
+function childrenOf(tree: LiveView<Page>, parentId: string | null): Page[] {
+  return tree.filter((p) => p.parentId === parentId).sort(bySiblingOrder);
+}
+
+/** Every page this one could move under: anything but itself and its own subtree. */
+function parentChoices(tree: LiveView<Page>, page: Page): { id: string; label: string }[] {
+  let inside = new Set<string>([page.id]);
+  let nodes = flattenTree(buildTree(tree));
+
+  for (let node of nodes) {
+    if (node.page.parentId && inside.has(node.page.parentId)) {
+      inside.add(node.id);
+    }
+  }
+
+  return nodes
+    .filter((node) => !inside.has(node.id))
+    .map((node) => ({ id: node.id, label: `${"— ".repeat(node.depth)}${node.page.title}` }));
+}
+
+function onMoveUnder(tree: LiveView<Page>, page: Page, parentId: string, menu: MenuState) {
+  let target = parentId || null;
+
+  if (target === page.parentId) {
+    return;
+  }
+
+  let last = childrenOf(tree, target).at(-1);
+
+  try {
+    tree.update({ ...page, parentId: target, position: (last?.position ?? 0) + 1 });
+    menu.error = "";
+  } catch (err: any) {
+    menu.error = err.message;
+  }
+}
+
+function onShift(tree: LiveView<Page>, page: Page, step: number, menu: MenuState) {
+  let siblings = childrenOf(tree, page.parentId);
+  let index = siblings.findIndex((p) => p.id === page.id);
+  let other = siblings[index + step];
+
+  if (!other) {
+    return;
+  }
+
+  let mine = page.position;
+  let theirs = other.position === mine ? mine + step : other.position;
+
+  try {
+    tree.update({ ...other, position: mine });
+    tree.update({ ...page, position: theirs });
+    menu.error = "";
+  } catch (err: any) {
+    menu.error = err.message;
+  }
+}
+
+function onDeleteClick(tree: LiveView<Page>, page: Page, space: Space, menu: MenuState) {
+  if (childrenOf(tree, page.id).length > 0) {
+    menu.error = "Move or delete this page's subpages first.";
+    return;
+  }
+
+  if (!confirm(`Delete "${page.title}" and its history? This can't be undone.`)) {
+    return;
+  }
+
+  let parent = page.parentId ? findPage(tree, page.parentId) : undefined;
+
+  try {
+    tree.delete(page);
+    redirect(parent ? pageUrl(parent) : `/s/${space.slug}`);
+  } catch (err: any) {
+    menu.error = err.message;
+  }
+}
+
+function isFirstSibling(tree: LiveView<Page>, page: Page): boolean {
+  return childrenOf(tree, page.parentId)[0]?.id === page.id;
+}
+
+function isLastSibling(tree: LiveView<Page>, page: Page): boolean {
+  return childrenOf(tree, page.parentId).at(-1)?.id === page.id;
+}
+
+<html lang="en" class="page-wiki-page" (
+  spaces: Space[],
+  space: Space,
+  tree: LiveView<Page>,
+  pageId: string,
+  initialDraft: Draft,
+  listener: Listener<PresenceEvent>,
+  users: PresentUser[],
+  private present: PresentUser[] = users,
+  private draft: Draft = initialDraft,
+  private menu: MenuState = { error: "" },
+) oninit={() => listener.on("notify", (e) => present = e.users)}>
+  <head>
+    <title>{findPage(tree, pageId)?.title ?? "Deleted page"} · {space.name} · lorebarn</title>
+    <link rel="icon" type="image/svg+xml" href={favicon} />
+  </head>
+  <body>
+    <Layout spaces={spaces} activeSlug={space.slug} tree={tree} activePageId={pageId}>
+      <div e:if={!findPage(tree, pageId)} class="callout is-warning">
+        <div class="callout-title">This page was deleted</div>
+        <div class="callout-body">
+          Someone removed it a moment ago. <a href={`/s/${space.slug}`}>Back to {space.name}</a>
+        </div>
+      </div>
+
+      <WikiPage e:else
+                tree={tree}
+                space={space}
+                page={findPage(tree, pageId)!}
+                present={present}
+                draft={draft}
+                menu={menu} />
+    </Layout>
+  </body>
+</html>
+
+<WikiPage (
+  tree: LiveView<Page>,
+  space: Space,
+  page: Page,
+  present: PresentUser[],
+  draft: Draft,
+  menu: MenuState,
+)>
+  <article class="wiki stack is-lg">
+    <nav class="wiki-crumbs row" aria-label="Breadcrumb">
+      <a href={`/s/${space.slug}`}>{space.name}</a>
+      <span e:for={crumb of ancestors(tree, page)} class="row gap-1-5">
+        <span class="sep">/</span>
+        <a href={pageUrl(crumb)}>{crumb.title}</a>
+      </span>
+    </nav>
+
+    <header class="stack is-sm">
+      <div class="wiki-head">
+        <h1 e:if={!draft.editing} class="wiki-title">{page.title}</h1>
+        <input e:else
+               class="wiki-title-input flex-1"
+               value={draft.title}
+               aria-label="Page title"
+               placeholder="Page title"
+               onkeydown={(e) => onEditorKeydown(e, tree, page, draft)}>
+
+        <div class="wiki-actions row">
+          <div class="presence" aria-label={presenceLabel(present)}>
+            <span e:for={user of othersHere(present)}
+                  class={["presence-person", user.editing && "is-editing"]}
+                  title={presenceTitle(user)}>
+              <Avatar id={user.userId} name={user.userName} />
+            </span>
+            <span class="presence-label">{presenceLabel(present)}</span>
+          </div>
+
+          <div e:if={!draft.editing} class="row gap-2">
+            <button class="is-primary" onclick={() => onEditClick(page, draft)}>Edit</button>
+            <a class="button" href={`${pageUrl(page)}/history`}>History</a>
+
+            <details class="page-menu">
+              <summary class="button is-ghost" aria-label="Page options">
+                <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="3" cy="8" r="1.4" fill="currentColor"/><circle cx="8" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/></svg>
+              </summary>
+
+              <div class="page-menu-panel stack is-sm">
+                <button class="is-ghost is-sm is-block" onclick={() => onAddSubpageClick(tree, page)}>Add a subpage</button>
+                <button class="is-ghost is-sm is-block" disabled={isFirstSibling(tree, page)} onclick={() => onShift(tree, page, -1, menu)}>Move up</button>
+                <button class="is-ghost is-sm is-block" disabled={isLastSibling(tree, page)} onclick={() => onShift(tree, page, 1, menu)}>Move down</button>
+
+                <div class="field">
+                  <label class="text-sm" for="move-under">Move under</label>
+                  <select id="move-under" class="is-sm" onchange={(e) => onMoveUnder(tree, page, (e.target as HTMLSelectElement).value, menu)}>
+                    <option value="" selected={!page.parentId}>{space.name} (top level)</option>
+                    <option e:for={choice of parentChoices(tree, page)} value={choice.id} selected={choice.id === page.parentId}>
+                      {choice.label}
+                    </option>
+                  </select>
+                </div>
+
+                <button class="is-danger is-sm is-block" onclick={() => onDeleteClick(tree, page, space, menu)}>Delete page</button>
+                <p e:if={menu.error} class="text-sm text-danger" role="alert">{menu.error}</p>
+              </div>
+            </details>
+          </div>
+        </div>
+      </div>
+
+      <div class="wiki-meta cluster">
+        <span>Version {page.version}</span>
+        <span>·</span>
+        <span title={formatDateTime(page.updatedAt)}>
+          Edited {timeAgo(page.updatedAt)} by {page.updatedByName ?? "someone"}
+        </span>
+        <span>·</span>
+        <a href={`${pageUrl(page)}/history`}>See history</a>
+      </div>
+    </header>
+
+    <div e:if={!draft.editing} class="stack is-lg">
+      <div e:if={page.body.trim()} class="markdown prose">{raw(renderMarkdown(page.body))}</div>
+
+      <p e:else class="wiki-empty">This page is empty. <button class="is-sm" onclick={() => onEditClick(page, draft)}>Start writing</button></p>
+
+      <section e:if={childrenOf(tree, page.id).length > 0} class="stack is-sm">
+        <h2 class="text-lg">Subpages</h2>
+        <ul class="card wiki-children plain-list">
+          <li e:for={child of childrenOf(tree, page.id)}>
+            <a href={pageUrl(child)}>
+              <span class="child-title">{child.title}</span>
+              <span e:if={child.body} class="child-excerpt truncate">{excerpt(child.body, 120)}</span>
+            </a>
+          </li>
+        </ul>
+      </section>
+    </div>
+
+    <div e:else class="stack">
+      <div e:if={hasConflict(page, draft)} class="callout is-warning" role="alert">
+        <div class="callout-title">{page.updatedByName ?? "Someone"} saved version {page.version} while you were editing</div>
+        <div class="callout-body stack is-sm">
+          <span>Load their version to start again from it, or keep your draft and save over it. Either way, both stay in the history.</span>
+          <div class="row gap-2">
+            <button class="is-sm" onclick={() => onTakeTheirs(page, draft)}>Load their version</button>
+            <button class="is-sm is-ghost" onclick={() => onKeepMine(page, draft)}>Keep my draft</button>
+          </div>
+        </div>
+      </div>
+
+      <div e:if={draft.error && !hasConflict(page, draft)} class="callout is-danger" role="alert">
+        <div class="callout-body">{draft.error}</div>
+      </div>
+
+      <div class="wiki-editor">
+        <div class="stack is-xs">
+          <span class="wiki-pane-label">Markdown</span>
+          <textarea value={draft.body}
+                    aria-label="Page body in markdown"
+                    placeholder="Write in markdown: ## headings, **bold**, - lists, `code`"
+                    spellcheck={true}
+                    focus={true}
+                    onkeydown={(e) => onEditorKeydown(e, tree, page, draft)}></textarea>
+        </div>
+
+        <div class="stack is-xs">
+          <span class="wiki-pane-label">Preview</span>
+          <div class="wiki-preview">
+            <div e:if={draft.body.trim()} class="markdown prose">{raw(renderMarkdown(draft.body))}</div>
+            <p e:else class="wiki-empty">Nothing to preview yet.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="wiki-editbar row">
+        <span class="text-sm text-ink-soft">
+          {isDirty(page, draft) ? "Unsaved changes" : "No changes yet"} · ⌘S to save
+        </span>
+        <div class="row gap-2">
+          <button class="is-ghost" onclick={() => onCancelClick(page, draft)}>Cancel</button>
+          <button class={["is-primary", draft.saving && "is-loading"]}
+                  disabled={draft.saving || hasConflict(page, draft)}
+                  onclick={() => onSave(tree, page, draft)}>
+            Save version {page.version + 1}
+          </button>
+        </div>
+      </div>
+    </div>
+  </article>
+</WikiPage>

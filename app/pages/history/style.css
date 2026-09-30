@@ -1,0 +1,182 @@
+@import "#app/shared/styles/page.css";
+@import "#app/shared/styles/markdown.css";
+
+.history {
+  max-width: 76rem;
+}
+
+.history-grid {
+  display: grid;
+  grid-template-columns: 17rem minmax(0, 1fr);
+  gap: var(--space-6);
+  align-items: start;
+}
+
+.history-list li + li {
+  border-top: 1px solid var(--rule);
+}
+
+.history-list a {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  padding: var(--space-3) var(--space-4);
+  color: inherit;
+  text-decoration: none;
+}
+
+.history-list a:hover {
+  background: var(--bg-soft);
+}
+
+.history-list a.is-active {
+  background: var(--accent-soft);
+}
+
+.history-list .v-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--text-sm);
+}
+
+.history-list .v-title {
+  font-weight: var(--weight-semibold);
+  color: var(--ink);
+}
+
+.history-list .v-meta {
+  color: var(--ink-soft);
+  font-size: var(--text-xs);
+}
+
+.history-compare {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.history-compare select {
+  width: 5.5rem;
+}
+
+.diff-stats .add {
+  color: var(--success);
+  font-weight: var(--weight-semibold);
+}
+
+.diff-stats .del {
+  color: var(--danger);
+  font-weight: var(--weight-semibold);
+}
+
+.diff {
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.65;
+}
+
+.diff-row {
+  display: grid;
+  grid-template-columns: 3rem 3rem 1.25rem minmax(0, 1fr);
+}
+
+.diff-row .no {
+  padding-inline-end: var(--space-2);
+  text-align: right;
+  color: var(--ink-dim);
+  user-select: none;
+}
+
+.diff-row .sign {
+  color: var(--ink-dim);
+  user-select: none;
+}
+
+.diff-row .text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding-inline-end: var(--space-4);
+}
+
+.diff-row.is-add {
+  background: color-mix(in oklab, var(--success) 12%, transparent);
+}
+
+.diff-row.is-add .sign {
+  color: var(--success);
+}
+
+.diff-row.is-del {
+  background: color-mix(in oklab, var(--danger) 11%, transparent);
+}
+
+.diff-row.is-del .sign {
+  color: var(--danger);
+}
+
+.diff-row.is-add mark {
+  background: color-mix(in oklab, var(--success) 32%, transparent);
+  color: inherit;
+  border-radius: 2px;
+}
+
+.diff-row.is-del mark {
+  background: color-mix(in oklab, var(--danger) 30%, transparent);
+  color: inherit;
+  border-radius: 2px;
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in oklab, var(--danger) 60%, transparent);
+}
+
+.diff-row.is-gap {
+  display: block;
+  padding: var(--space-1) var(--space-4);
+  background: var(--bg-soft);
+  color: var(--ink-soft);
+  font-family: var(--font-sans);
+  text-align: center;
+}
+
+.diff-title {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--rule);
+  font-size: var(--text-sm);
+}
+
+.diff-title del {
+  color: var(--danger);
+}
+
+.diff-title ins {
+  color: var(--success);
+  text-decoration: none;
+  font-weight: var(--weight-semibold);
+}
+
+.history-same {
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--ink-soft);
+}
+
+@media (max-width: 60rem) {
+  .history-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .diff-row {
+    grid-template-columns: 2.25rem 2.25rem 1rem minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 48rem) {
+  .link-muted {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.5rem;
+  }
+}

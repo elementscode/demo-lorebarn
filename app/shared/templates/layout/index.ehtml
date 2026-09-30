@@ -1,0 +1,120 @@
+import "./style.css";
+import { LiveView, redirect, session } from "@elements/app";
+import { Logo } from "#app/shared/templates/logo";
+import { Avatar } from "#app/shared/templates/avatar";
+import { signout } from "#app/shared/services/auth";
+import { Page, Space, buildTree, flattenTree, pageUrl } from "#app/shared/services/pages";
+
+interface SearchBox {
+  q: string;
+}
+
+function onSearchSubmit(box: SearchBox) {
+  let q = box.q.trim();
+  redirect(q ? `/search?q=${encodeURIComponent(q)}` : "/search");
+}
+
+function onNewPageClick(tree: LiveView<Page>, space: Space) {
+  let page = tree.insert({
+    spaceSlug: space.slug,
+    parentId: null,
+    position: Number.MAX_SAFE_INTEGER,
+    title: "Untitled",
+    body: "",
+    version: 1,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    updatedByName: session.get("userName") ?? null,
+  });
+
+  redirect(`${pageUrl(page)}?edit=1`);
+}
+
+<Layout (
+  spaces: Space[],
+  activeSlug: string = "",
+  tree: LiveView<Page> | null = null,
+  activePageId: string = "",
+  section: string = "",
+  private nav: { open: boolean } = { open: false },
+  private box: SearchBox = { q: "" },
+)>
+  <div class="app has-sidebar layout">
+    <aside class={["layout-side", nav.open && "is-open"]}>
+      <div class="layout-top">
+        <a class="layout-brand row" href="/">
+          <Logo size={26} />
+          lorebarn
+        </a>
+
+        <button class="layout-menu is-ghost is-sm" aria-expanded={nav.open} onclick={() => nav.open = !nav.open}>
+          {nav.open ? "Close" : "Menu"}
+        </button>
+      </div>
+
+      <div class="layout-collapsible stack is-lg">
+        <form class="layout-search" role="search" onsubmit={() => onSearchSubmit(box)}>
+          <input type="search" class="is-sm" value={box.q} placeholder="Search pages" aria-label="Search pages">
+        </form>
+
+        <nav class="layout-nav stack" aria-label="Main">
+          <a href="/" class={[section === "home" && "is-active"]}>
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 7.5 8 2.5l6 5V14H10v-4H6v4H2z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+            Home
+          </a>
+          <a href="/search" class={[section === "search" && "is-active"]}>
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="m10.5 10.5 3.5 3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            Search
+          </a>
+          <a e:if={session.get("role") === "admin"} href="/admin/members" class={[section === "members" && "is-active"]}>
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="6" cy="5.5" r="2.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M1.5 14c.5-2.6 2.2-4 4.5-4s4 1.4 4.5 4M11 3.2a2.5 2.5 0 0 1 0 4.6M12.5 10.3c1.1.6 1.8 1.9 2 3.7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            Members
+          </a>
+        </nav>
+
+        <div>
+          <div class="layout-section-label">Spaces</div>
+
+          <ul class="stack">
+            <li e:for={space of spaces} class="layout-space">
+              <div class="layout-space-head">
+                <a href={`/s/${space.slug}`} class={[space.slug === activeSlug && !activePageId && "is-active"]}>
+                  {space.name}
+                </a>
+
+                <button e:if={tree && space.slug === activeSlug}
+                        class="layout-add is-ghost is-sm"
+                        title={`New page in ${space.name}`}
+                        aria-label={`New page in ${space.name}`}
+                        onclick={() => onNewPageClick(tree!, space)}>
+                  <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 2v10M2 7h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+                </button>
+              </div>
+
+              <ul e:if={tree && space.slug === activeSlug} class="layout-tree stack">
+                <li e:for={node of flattenTree(buildTree(tree!))} style={`--depth: ${node.depth}`}>
+                  <a href={pageUrl(node.page)} class={[node.id === activePageId && "is-active"]} title={node.page.title}>
+                    <span class="truncate">{node.page.title}</span>
+                  </a>
+                </li>
+              </ul>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="layout-user row layout-collapsible">
+        <Avatar id={session.get("userId") ?? ""} name={session.get("userName") ?? ""} />
+        <span class="who">
+          <span class="truncate">{session.get("userName")}</span>
+          <small>{session.get("role")}</small>
+        </span>
+        <button class="is-ghost is-sm" onclick={() => signout()}>Sign out</button>
+      </div>
+    </aside>
+
+    <main class="app-main layout-main">
+      <slot/>
+    </main>
+  </div>
+</Layout>
