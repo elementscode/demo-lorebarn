@@ -29,12 +29,12 @@ Lorebarn needed a page tree that updates for everyone, a version kept on every s
 
 ### What Elements gave the app
 
-- **Live pages and tree.** `pages` is a LiveTable in `app/shared/services/pages.ts`, partitioned by space. The editor writes straight to it, so a save, a new page or a move in the tree shows up in every open tree, page and home screen at once.
-- **Versions in one handler.** The `pages` update handler tells an edit from a move. An edit has to be made against the latest version: it bumps the version and writes a snapshot to `pageVersions` in the same transaction, and a stale save gets a message naming who saved first.
-- **Presence on a Channel.** `presence` in `app/shared/services/presence.ts` is a Channel. The page route joins on connect and leaves on disconnect, `setEditing` flips a reader to editor, and each change carries the full list of who is there, so every open copy of the page shows the same people.
-- **Search from SQL.** A generated, weighted search column and an index in the schema migration back the `search` rpc on the search page, which ranks matches and highlights them in the results.
-- **Data from SQL files.** Two migrations define the wiki and seed one admin, three members, three spaces with 23 nested pages, 64 saved versions and a pending invite.
-- **Sessions and roles.** The members page and its `sendInvite`, `revokeInvite` and `setRole` rpcs check for an admin with `requireAdmin`.
+- **Live pages and tree.** Pages are a LiveTable split by space, so a save, a new page or a move in the tree shows up in every open tree, page and home screen at once.
+- **A version on every save.** Each edit is checked against the latest version, keeps a snapshot in the same transaction, and tells a late editor who saved first. History restores a version through the same live table, so every open copy updates.
+- **Presence.** A channel tracks who is on each page and who is editing, and every open copy of the page shows the same people as they arrive, start typing and leave.
+- **Full text search.** Search ranks matches across every page and highlights them, from a weighted search column the migration defines.
+- **Invites and roles.** Admins invite members by email and change roles with `@rpc` calls that check for an admin first.
+- **Data from SQL files.** Migrations define the wiki and seed one admin, three members, three spaces with 23 nested pages, 64 saved versions and a pending invite.
 
 ### What the project server gave the agent
 
@@ -43,8 +43,6 @@ The project server runs alongside the agent and answers as soon as a file is sav
 ### What shipped
 
 The app type-checks with zero errors and all 28 tests pass. Every page works on desktop and phone.
-
-Start in `app/shared/services/pages.ts`.
 
 ## Demo accounts
 
