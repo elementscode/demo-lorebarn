@@ -30,10 +30,15 @@ Lorebarn needed a page tree that updates for everyone, a version kept on every s
 ### What Elements gave the app
 
 - **Live pages and tree.** Pages are a LiveTable split by space, so a save, a new page or a move in the tree shows up in every open tree, page and home screen at once.
+
 - **A version on every save.** Each edit is checked against the latest version, keeps a snapshot in the same transaction, and tells a late editor who saved first. History restores a version through the same live table, so every open copy updates.
+
 - **Presence.** A channel tracks who is on each page and who is editing, and every open copy of the page shows the same people as they arrive, start typing and leave.
+
 - **Full text search.** Search ranks matches across every page and highlights them, from a weighted search column the migration defines.
+
 - **Invites and roles.** Admins invite members by email and change roles with `@rpc` calls that check for an admin first.
+
 - **Data from SQL files.** Migrations define the wiki and seed one admin, three members, three spaces with 23 nested pages, 64 saved versions and a pending invite.
 
 ### What the project server gave the agent
