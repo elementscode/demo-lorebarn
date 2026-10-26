@@ -1,30 +1,16 @@
-![Lorebarn, a team wiki built with Elements: editing a page with markdown beside its live preview, the space's page tree, and three teammates on the page with one of them editing.](https://elements.dev/demos/01a0f3c9-6ed3-7a9a-b2c5-64cab23e4672/poster?v=dcea3bd94986)
+![A team wiki with version history, built by Claude Code on Elements: editing a page with markdown beside its live preview, the space's page tree, and three teammates on the page with one of them editing.](https://elements.dev/demos/01a0f3c9-6ed3-7a9a-b2c5-64cab23e4672/poster?v=dcea3bd94986)
 
-# Lorebarn
+# A team wiki with version history, built by Claude Code on Elements
 
-> A demo app built with [Elements](https://elements.dev).
+> Lorebarn is a full-stack app built with Claude Code on Elements.
 
 Nested pages in markdown with live preview, version diffs and restore, presence on every page, and full-text search.
 
-**Demo:** [Lorebarn](https://elements.dev/demos/01a0f3c9-6ed3-7a9a-b2c5-64cab23e4672)
-
-## Agent specs
-
-- **Agent:** Claude Code, Opus 5.5 Medium
-- **Time:** 17 min
-- **Cost:** $5.99 at API rates, September 2026
-
-## Get started
-
-```bash
-elements create lorebarn -scaffold=elementscode/demo-lorebarn
-```
+[Run this app on your machine](https://elements.dev/demos/01a0f3c9-6ed3-7a9a-b2c5-64cab23e4672). Use this demo as inspiration, or as the starting point for your own app. Your agent creates a new app with this one as the scaffold, and you prompt it to add whatever features you want.
 
 ## How it's built
 
 Lorebarn needed a page tree that updates for everyone, a version kept on every save, presence on each page, full text search and email invites. Each of those is a part of Elements, so the agent spent its 17 minutes on the wiki itself.
-
-### What Elements gave the app
 
 - **Live pages and tree.** Pages are a LiveTable split by space, so a save, a new page or a move in the tree shows up in every open tree, page and home screen at once.
 
@@ -38,37 +24,6 @@ Lorebarn needed a page tree that updates for everyone, a version kept on every s
 
 - **Data from SQL files.** Migrations define the wiki and seed one admin, three members, three spaces with 23 nested pages, 64 saved versions and a pending invite.
 
-### What the project server gave the agent
+## Why Elements
 
-The project server runs alongside the agent and answers as soon as a file is saved: it type-checks the templates, TypeScript and SQL, applies migrations and reruns the tests, so every question came back right away and the agent kept building.
-
-### What shipped
-
-The app type-checks with zero errors and all 28 tests pass. Every page works on desktop and phone.
-
-## Demo accounts
-
-The seed writes the wiki of Crewline, a made-up company that makes scheduling
-software for field-service shops: three spaces (Engineering, Product,
-Handbook) with 23 pages nested up to three levels deep, and 64 saved versions,
-two to four per page, so every page has history to compare and restore. One
-invite, for sam@lorebarn.dev, is pending.
-
-Every account's password is `lorebarn`, and the sign-in page lists them.
-
-| Email              | Role   |
-| ------------------ | ------ |
-| maya@lorebarn.dev  | admin  |
-| theo@lorebarn.dev  | member |
-| priya@lorebarn.dev | member |
-| jonah@lorebarn.dev | member |
-
-In development, invite emails are written to `.elements/logs/program.log`
-instead of being sent; the Members page also has a "Copy link" button for each
-pending invite.
-
-**Demo:** [Lorebarn](https://elements.dev/demos/01a0f3c9-6ed3-7a9a-b2c5-64cab23e4672)
-
-## License
-
-MIT. See [LICENSE](LICENSE).
+Elements is an integrated full-stack app framework and a project server. The project server checks the agent's work as it builds: it type-checks the server and browser code, analyzes the program, applies migrations and runs the tests, then reports the results to the agent. A security mistake, such as calling a server-only function from the browser, is a compile error. The agent reads the report and fixes its own mistakes before it tells you a feature is done. The same checks run on every feature you ask for next.
