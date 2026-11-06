@@ -1,5 +1,13 @@
 import "./style.css";
 import { LiveView, redirect, session } from "@elements/app";
+import {
+  SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarFooter, SidebarGroup,
+  SidebarGroupLabel, SidebarGroupContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton,
+  SidebarMenuAction, SidebarMenuSub, SidebarMenuSubItem, SidebarMenuSubButton, SidebarInset,
+  SidebarTrigger, SidebarInput,
+} from "@elements/ui/sidebar";
+import { Button } from "@elements/ui/button";
+import { Icon } from "@elements/ui/icon";
 import { Logo } from "#app/shared/templates/logo";
 import { Avatar } from "#app/shared/templates/avatar";
 import { signout } from "#app/shared/services/auth";
@@ -36,85 +44,90 @@ function onNewPageClick(tree: LiveView<Page>, space: Space) {
   tree: LiveView<Page> | null = null,
   activePageId: string = "",
   section: string = "",
-  private nav: { open: boolean } = { open: false },
   private box: SearchBox = { q: "" },
 )>
-  <div class="app has-sidebar layout">
-    <aside class={["layout-side", nav.open && "is-open"]}>
-      <div class="layout-top">
+  <SidebarProvider class="layout" shortcut="" cookie="">
+    <Sidebar label="Main">
+      <SidebarHeader>
         <a class="layout-brand row" href="/">
           <Logo size={26} />
           lorebarn
         </a>
 
-        <button class="layout-menu is-ghost is-sm" aria-expanded={nav.open} onclick={() => nav.open = !nav.open}>
-          {nav.open ? "Close" : "Menu"}
-        </button>
-      </div>
-
-      <div class="layout-collapsible stack is-lg">
-        <form class="layout-search" role="search" onsubmit={() => onSearchSubmit(box)}>
-          <input type="search" class="is-sm" value={box.q} placeholder="Search pages" aria-label="Search pages">
+        <form role="search" onsubmit={() => onSearchSubmit(box)}>
+          <SidebarInput value={box.q} placeholder="Search pages" attrs={{ "aria-label": "Search pages" }} />
         </form>
+      </SidebarHeader>
 
-        <nav class="layout-nav stack" aria-label="Main">
-          <a href="/" class={[section === "home" && "is-active"]}>
-            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 7.5 8 2.5l6 5V14H10v-4H6v4H2z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
-            Home
-          </a>
-          <a href="/search" class={[section === "search" && "is-active"]}>
-            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="m10.5 10.5 3.5 3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-            Search
-          </a>
-          <a e:if={session.get("role") === "admin"} href="/admin/members" class={[section === "members" && "is-active"]}>
-            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="6" cy="5.5" r="2.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M1.5 14c.5-2.6 2.2-4 4.5-4s4 1.4 4.5 4M11 3.2a2.5 2.5 0 0 1 0 4.6M12.5 10.3c1.1.6 1.8 1.9 2 3.7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
-            Members
-          </a>
-        </nav>
+      <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton href="/" isActive={section === "home"}><Icon name="home" /><span>Home</span></SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton href="/search" isActive={section === "search"}><Icon name="search" /><span>Search</span></SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem e:if={session.get("role") === "admin"}>
+                <SidebarMenuButton href="/admin/members" isActive={section === "members"}><Icon name="user" /><span>Members</span></SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
 
-        <div>
-          <div class="layout-section-label">Spaces</div>
+        <SidebarGroup>
+          <SidebarGroupLabel>Spaces</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem e:for={space of spaces}>
+                <SidebarMenuButton href={`/s/${space.slug}`} isActive={space.slug === activeSlug && !activePageId}>
+                  <span>{space.name}</span>
+                </SidebarMenuButton>
 
-          <ul class="stack">
-            <li e:for={space of spaces} class="layout-space">
-              <div class="layout-space-head">
-                <a href={`/s/${space.slug}`} class={[space.slug === activeSlug && !activePageId && "is-active"]}>
-                  {space.name}
-                </a>
+                <SidebarMenuAction e:if={tree && space.slug === activeSlug}
+                                   label={`New page in ${space.name}`}
+                                   onclick={() => onNewPageClick(tree!, space)}>
+                  <Icon name="plus" />
+                </SidebarMenuAction>
 
-                <button e:if={tree && space.slug === activeSlug}
-                        class="layout-add is-ghost is-sm"
-                        title={`New page in ${space.name}`}
-                        aria-label={`New page in ${space.name}`}
-                        onclick={() => onNewPageClick(tree!, space)}>
-                  <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 2v10M2 7h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-                </button>
-              </div>
+                <SidebarMenuSub e:if={tree && space.slug === activeSlug} class="layout-tree">
+                  <SidebarMenuSubItem e:for={node of flattenTree(buildTree(tree!))}>
+                    <SidebarMenuSubButton href={pageUrl(node.page)}
+                                          isActive={node.id === activePageId}
+                                          attrs={{ title: node.page.title, style: `--depth: ${node.depth}` }}>
+                      <span class="truncate">{node.page.title}</span>
+                    </SidebarMenuSubButton>
+                  </SidebarMenuSubItem>
+                </SidebarMenuSub>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      </SidebarContent>
 
-              <ul e:if={tree && space.slug === activeSlug} class="layout-tree stack">
-                <li e:for={node of flattenTree(buildTree(tree!))} style={`--depth: ${node.depth}`}>
-                  <a href={pageUrl(node.page)} class={[node.id === activePageId && "is-active"]} title={node.page.title}>
-                    <span class="truncate">{node.page.title}</span>
-                  </a>
-                </li>
-              </ul>
-            </li>
-          </ul>
+      <SidebarFooter>
+        <div class="layout-user row">
+          <Avatar id={session.get("userId") ?? ""} name={session.get("userName") ?? ""} />
+          <span class="who">
+            <span class="truncate">{session.get("userName")}</span>
+            <small>{session.get("role")}</small>
+          </span>
+          <Button variant="ghost" size="sm" onclick={() => signout()}>Sign out</Button>
         </div>
+      </SidebarFooter>
+    </Sidebar>
+
+    <SidebarInset class="layout-main">
+      <div class="layout-phonebar row">
+        <a class="layout-brand row" href="/">
+          <Logo size={26} />
+          lorebarn
+        </a>
+        <SidebarTrigger label="Menu" />
       </div>
 
-      <div class="layout-user row layout-collapsible">
-        <Avatar id={session.get("userId") ?? ""} name={session.get("userName") ?? ""} />
-        <span class="who">
-          <span class="truncate">{session.get("userName")}</span>
-          <small>{session.get("role")}</small>
-        </span>
-        <button class="is-ghost is-sm" onclick={() => signout()}>Sign out</button>
-      </div>
-    </aside>
-
-    <main class="app-main layout-main">
       <slot/>
-    </main>
-  </div>
+    </SidebarInset>
+  </SidebarProvider>
 </Layout>
