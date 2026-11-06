@@ -2,6 +2,8 @@ import "./style.css";
 import { LiveView, redirect, session } from "@elements/app";
 import favicon from "#app/shared/assets/favicons/favicon.svg";
 import { Layout } from "#app/shared/templates/layout";
+import { Button } from "@elements/ui/button";
+import { Empty } from "@elements/ui/empty";
 import { Page, Space, buildTree, flattenTree, pageUrl } from "#app/shared/services/pages";
 import { timeAgo } from "#app/shared/services/format";
 
@@ -37,11 +39,11 @@ function onNewPageClick(tree: LiveView<Page>, space: Space) {
             <p class="text-ink-soft">{space.description}</p>
           </div>
 
-          <button class="is-primary" onclick={() => onNewPageClick(tree, space)}>New page</button>
+          <Button variant="primary" onclick={() => onNewPageClick(tree, space)}>New page</Button>
         </header>
 
         <div class="card">
-          <p e:if={tree.length === 0} class="card-body text-ink-soft">No pages in this space yet.</p>
+          <Empty e:if={tree.length === 0} description="No pages in this space yet." />
 
           <ul e:else class="space-tree plain-list">
             <li e:for={node of flattenTree(buildTree(tree))}
