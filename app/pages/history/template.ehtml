@@ -3,6 +3,13 @@ import { LiveView, NotFoundError, raw, redirect, session, sql } from "@elements/
 import favicon from "#app/shared/assets/favicons/favicon.svg";
 import { Layout } from "#app/shared/templates/layout";
 import { Avatar } from "#app/shared/templates/avatar";
+import { Alert } from "@elements/ui/alert";
+import { AlertDialog, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@elements/ui/alert-dialog";
+import { Badge } from "@elements/ui/badge";
+import { Button } from "@elements/ui/button";
+import { Card, CardContent } from "@elements/ui/card";
+import { NativeSelect } from "@elements/ui/native-select";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@elements/ui/tabs";
 import { Page, Space, pageUrl, pages } from "#app/shared/services/pages";
 import { renderMarkdown } from "#app/shared/services/markdown";
 import { formatDateTime, timeAgo } from "#app/shared/services/format";
@@ -32,6 +39,7 @@ export interface Comparison {
 }
 
 interface RestoreState {
+  confirming: boolean;
   busy: boolean;
   error: string;
 }
@@ -71,11 +79,7 @@ export function restoreVersion(pageId: string, version: number) {
   redirect(pageUrl(page));
 }
 
-function onRestoreClick(pageId: string, version: number, state: RestoreState) {
-  if (!confirm(`Restore version ${version}? It becomes a new version, so nothing is lost.`)) {
-    return;
-  }
-
+function onRestoreConfirm(pageId: string, version: number, state: RestoreState) {
   state.busy = true;
 
   try {
@@ -98,6 +102,10 @@ function onToChange(page: Page, from: number, value: string) {
   redirect(compareUrl(page, from, Number(value)));
 }
 
+function versionOptions(versions: VersionItem[]): { value: string; label: string }[] {
+  return versions.map((v) => ({ value: String(v.version), label: `v${v.version}` }));
+}
+
 function findPage(tree: LiveView<Page>, pageId: string): Page | undefined {
   return tree.find((p) => p.id === pageId);
 }
@@ -114,7 +122,7 @@ function rowSign(row: DiffRow): string {
   versions: VersionItem[],
   comparison: Comparison,
   mode: string,
-  private restore: RestoreState = { busy: false, error: "" },
+  private restore: RestoreState = { confirming: false, busy: false, error: "" },
 )>
   <head>
     <title>History · {findPage(tree, pageId)?.title ?? "Page"} · lorebarn</title>
@@ -122,10 +130,9 @@ function rowSign(row: DiffRow): string {
   </head>
   <body>
     <Layout spaces={spaces} activeSlug={space.slug} tree={tree} activePageId={pageId}>
-      <div e:if={!findPage(tree, pageId)} class="callout is-warning">
-        <div class="callout-title">This page was deleted</div>
-        <div class="callout-body"><a href={`/s/${space.slug}`}>Back to {space.name}</a></div>
-      </div>
+      <Alert e:if={!findPage(tree, pageId)} variant="warning" role="status" title="This page was deleted">
+        <a href={`/s/${space.slug}`}>Back to {space.name}</a>
+      </Alert>
 
       <div e:else class="history stack is-lg">
         <header class="stack is-xs">
@@ -136,12 +143,12 @@ function rowSign(row: DiffRow): string {
           </p>
         </header>
 
-        <div e:if={findPage(tree, pageId)!.version > versions[0].version} class="callout is-info">
-          <div class="callout-body">
+        <Alert e:if={findPage(tree, pageId)!.version > versions[0].version} variant="info" role="status">
+          <span>
             {findPage(tree, pageId)!.updatedByName ?? "Someone"} just saved version {findPage(tree, pageId)!.version}.
             <a href={`${pageUrl(findPage(tree, pageId)!)}/history`}>Show it</a>
-          </div>
-        </div>
+          </span>
+        </Alert>
 
         <div class="history-grid">
           <ol class="card history-list plain-list">
@@ -152,7 +159,7 @@ function rowSign(row: DiffRow): string {
                 <span class="v-main">
                   <span class="v-title">
                     Version {v.version}
-                    <span e:if={v.version === versions[0].version} class="pill is-accent">current</span>
+                    <Badge e:if={v.version === versions[0].version} variant="accent">current</Badge>
                   </span>
                   <span class="v-meta" title={formatDateTime(v.createdAt)}>
                     {v.authorName ?? "Someone"} · {timeAgo(v.createdAt)}
@@ -163,84 +170,90 @@ function rowSign(row: DiffRow): string {
             </li>
           </ol>
 
-          <section class="stack">
+          <Tabs value={mode === "read" ? "read" : "changes"} class="stack">
             <div class="history-compare row">
               <div class="row gap-2 text-sm">
                 <span>Compare</span>
-                <select class="is-sm"
-                        aria-label="Older version"
-                        onchange={(e) => onFromChange(findPage(tree, pageId)!, (e.target as HTMLSelectElement).value, comparison.to.version)}>
-                  <option e:for={v of versions} value={String(v.version)} selected={v.version === comparison.from.version}>
-                    v{v.version}
-                  </option>
-                </select>
+                <NativeSelect size="sm"
+                              value={String(comparison.from.version)}
+                              options={versionOptions(versions)}
+                              attrs={{ "aria-label": "Older version" }}
+                              onchange={(e) => onFromChange(findPage(tree, pageId)!, (e.target as HTMLSelectElement).value, comparison.to.version)} />
                 <span>with</span>
-                <select class="is-sm"
-                        aria-label="Newer version"
-                        onchange={(e) => onToChange(findPage(tree, pageId)!, comparison.from.version, (e.target as HTMLSelectElement).value)}>
-                  <option e:for={v of versions} value={String(v.version)} selected={v.version === comparison.to.version}>
-                    v{v.version}
-                  </option>
-                </select>
+                <NativeSelect size="sm"
+                              value={String(comparison.to.version)}
+                              options={versionOptions(versions)}
+                              attrs={{ "aria-label": "Newer version" }}
+                              onchange={(e) => onToChange(findPage(tree, pageId)!, comparison.from.version, (e.target as HTMLSelectElement).value)} />
               </div>
 
               <div class="row gap-2">
-                <div class="tabs">
-                  <div class="tab-list">
-                    <a class={["tab", mode !== "read" && "is-active"]}
-                       href={`${compareUrl(findPage(tree, pageId)!, comparison.from.version, comparison.to.version)}`}>Changes</a>
-                    <a class={["tab", mode === "read" && "is-active"]}
-                       href={`${compareUrl(findPage(tree, pageId)!, comparison.from.version, comparison.to.version)}&mode=read`}>Version {comparison.to.version}</a>
+                <TabsList label="View">
+                  <TabsTrigger value="changes" href={compareUrl(findPage(tree, pageId)!, comparison.from.version, comparison.to.version)}>Changes</TabsTrigger>
+                  <TabsTrigger value="read" href={`${compareUrl(findPage(tree, pageId)!, comparison.from.version, comparison.to.version)}&mode=read`}>Version {comparison.to.version}</TabsTrigger>
+                </TabsList>
+
+                <Button e:if={comparison.to.version !== findPage(tree, pageId)!.version}
+                        variant="primary"
+                        size="sm"
+                        loading={restore.busy}
+                        onclick={() => restore.confirming = true}>
+                  Restore v{comparison.to.version}
+                </Button>
+              </div>
+            </div>
+
+            <Alert e:if={restore.error} variant="danger" description={restore.error} />
+
+            <TabsContent value="read">
+              <Card>
+                <CardContent class="stack">
+                  <h2 class="text-2xl">{comparison.to.title}</h2>
+                  <div class="markdown prose">{raw(renderMarkdown(comparison.to.body))}</div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="changes">
+              <Card>
+                <div class="diff-title row gap-3">
+                  <span class="diff-stats row gap-2">
+                    <span class="add">+{comparison.stats.added}</span>
+                    <span class="del">−{comparison.stats.removed}</span>
+                    <span class="text-ink-soft">v{comparison.from.version} → v{comparison.to.version}</span>
+                  </span>
+                  <span e:if={comparison.from.title !== comparison.to.title}>
+                    Title: <del>{comparison.from.title}</del> → <ins>{comparison.to.title}</ins>
+                  </span>
+                </div>
+
+                <p e:if={comparison.rows.every((r) => r.kind === "same" || r.kind === "gap")} class="history-same">
+                  {comparison.from.version === comparison.to.version ? "Pick two different versions to see what changed." : "The body is the same in both versions."}
+                </p>
+
+                <div e:else class="diff" role="table" aria-label="Changes">
+                  <div e:for={row of comparison.rows} class={["diff-row", `is-${row.kind}`]} role="row">
+                    <span e:if={row.kind === "gap"}>⋯ {row.parts[0].text}</span>
+                    <span e:if={row.kind !== "gap"} class="no">{row.oldNo ?? ""}</span>
+                    <span e:if={row.kind !== "gap"} class="no">{row.newNo ?? ""}</span>
+                    <span e:if={row.kind !== "gap"} class="sign">{rowSign(row)}</span>
+                    <span e:if={row.kind !== "gap"} class="text"><DiffText parts={row.parts} /></span>
                   </div>
                 </div>
+              </Card>
+            </TabsContent>
 
-                <button e:if={comparison.to.version !== findPage(tree, pageId)!.version}
-                        class={["is-primary is-sm", restore.busy && "is-loading"]}
-                        disabled={restore.busy}
-                        onclick={() => onRestoreClick(pageId, comparison.to.version, restore)}>
-                  Restore v{comparison.to.version}
-                </button>
-              </div>
-            </div>
+            <AlertDialog open={restore.confirming}
+                         title={`Restore version ${comparison.to.version}?`}
+                         description="It becomes a new version, so nothing is lost."
+                         size="sm">
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onclick={() => onRestoreConfirm(pageId, comparison.to.version, restore)}>Restore</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialog>
+          </Tabs>
 
-            <div e:if={restore.error} class="callout is-danger" role="alert">
-              <div class="callout-body">{restore.error}</div>
-            </div>
-
-            <div e:if={mode === "read"} class="card">
-              <div class="card-body stack">
-                <h2 class="text-2xl">{comparison.to.title}</h2>
-                <div class="markdown prose">{raw(renderMarkdown(comparison.to.body))}</div>
-              </div>
-            </div>
-
-            <div e:else class="card">
-              <div class="diff-title row gap-3">
-                <span class="diff-stats row gap-2">
-                  <span class="add">+{comparison.stats.added}</span>
-                  <span class="del">−{comparison.stats.removed}</span>
-                  <span class="text-ink-soft">v{comparison.from.version} → v{comparison.to.version}</span>
-                </span>
-                <span e:if={comparison.from.title !== comparison.to.title}>
-                  Title: <del>{comparison.from.title}</del> → <ins>{comparison.to.title}</ins>
-                </span>
-              </div>
-
-              <p e:if={comparison.rows.every((r) => r.kind === "same" || r.kind === "gap")} class="history-same">
-                {comparison.from.version === comparison.to.version ? "Pick two different versions to see what changed." : "The body is the same in both versions."}
-              </p>
-
-              <div e:else class="diff" role="table" aria-label="Changes">
-                <div e:for={row of comparison.rows} class={["diff-row", `is-${row.kind}`]} role="row">
-                  <span e:if={row.kind === "gap"}>⋯ {row.parts[0].text}</span>
-                  <span e:if={row.kind !== "gap"} class="no">{row.oldNo ?? ""}</span>
-                  <span e:if={row.kind !== "gap"} class="no">{row.newNo ?? ""}</span>
-                  <span e:if={row.kind !== "gap"} class="sign">{rowSign(row)}</span>
-                  <span e:if={row.kind !== "gap"} class="text"><DiffText parts={row.parts} /></span>
-                </div>
-              </div>
-            </div>
-          </section>
         </div>
       </div>
     </Layout>

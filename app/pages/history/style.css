@@ -58,10 +58,6 @@
   gap: var(--space-3);
 }
 
-.history-compare select {
-  width: 5.5rem;
-}
-
 .diff-stats .add {
   color: var(--success);
   font-weight: var(--weight-semibold);
