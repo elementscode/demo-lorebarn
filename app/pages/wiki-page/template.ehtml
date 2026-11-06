@@ -4,6 +4,18 @@ import type { Listener } from "@elements/app";
 import favicon from "#app/shared/assets/favicons/favicon.svg";
 import { Layout } from "#app/shared/templates/layout";
 import { Avatar } from "#app/shared/templates/avatar";
+import { Alert, AlertTitle, AlertDescription } from "@elements/ui/alert";
+import { AlertDialog, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@elements/ui/alert-dialog";
+import { AvatarBadge, AvatarGroup } from "@elements/ui/avatar";
+import { Breadcrumb } from "@elements/ui/breadcrumb";
+import { Button } from "@elements/ui/button";
+import {
+  DropdownMenu, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+} from "@elements/ui/dropdown-menu";
+import { Empty, EmptyContent } from "@elements/ui/empty";
+import { Icon } from "@elements/ui/icon";
+import { toast } from "@elements/ui/toast";
 import { Page, Space, ancestors, buildTree, bySiblingOrder, flattenTree, pageUrl } from "#app/shared/services/pages";
 import { PresenceEvent, PresentUser, setEditing } from "#app/shared/services/presence";
 import { renderMarkdown } from "#app/shared/services/markdown";
@@ -18,8 +30,9 @@ export interface Draft {
   error: string;
 }
 
-interface MenuState {
-  error: string;
+interface Confirming {
+  discard: boolean;
+  remove: boolean;
 }
 
 function findPage(tree: LiveView<Page>, pageId: string): Page | undefined {
@@ -84,11 +97,16 @@ function onEditClick(page: Page, draft: Draft) {
   setEditing(page.id, true);
 }
 
-function onCancelClick(page: Page, draft: Draft) {
-  if (isDirty(page, draft) && !confirm("Discard your unsaved changes?")) {
+function onCancelClick(page: Page, draft: Draft, confirming: Confirming) {
+  if (isDirty(page, draft)) {
+    confirming.discard = true;
     return;
   }
 
+  stopEditing(page, draft);
+}
+
+function stopEditing(page: Page, draft: Draft) {
   draft.editing = false;
   draft.error = "";
   setEditing(page.id, false);
@@ -183,7 +201,7 @@ function parentChoices(tree: LiveView<Page>, page: Page): { id: string; label: s
     .map((node) => ({ id: node.id, label: `${"— ".repeat(node.depth)}${node.page.title}` }));
 }
 
-function onMoveUnder(tree: LiveView<Page>, page: Page, parentId: string, menu: MenuState) {
+function onMoveUnder(tree: LiveView<Page>, page: Page, parentId: string) {
   let target = parentId || null;
 
   if (target === page.parentId) {
@@ -194,13 +212,12 @@ function onMoveUnder(tree: LiveView<Page>, page: Page, parentId: string, menu: M
 
   try {
     tree.update({ ...page, parentId: target, position: (last?.position ?? 0) + 1 });
-    menu.error = "";
   } catch (err: any) {
-    menu.error = err.message;
+    toast.error(err.message);
   }
 }
 
-function onShift(tree: LiveView<Page>, page: Page, step: number, menu: MenuState) {
+function onShift(tree: LiveView<Page>, page: Page, step: number) {
   let siblings = childrenOf(tree, page.parentId);
   let index = siblings.findIndex((p) => p.id === page.id);
   let other = siblings[index + step];
@@ -215,30 +232,36 @@ function onShift(tree: LiveView<Page>, page: Page, step: number, menu: MenuState
   try {
     tree.update({ ...other, position: mine });
     tree.update({ ...page, position: theirs });
-    menu.error = "";
   } catch (err: any) {
-    menu.error = err.message;
+    toast.error(err.message);
   }
 }
 
-function onDeleteClick(tree: LiveView<Page>, page: Page, space: Space, menu: MenuState) {
+function onDeleteClick(tree: LiveView<Page>, page: Page, confirming: Confirming) {
   if (childrenOf(tree, page.id).length > 0) {
-    menu.error = "Move or delete this page's subpages first.";
+    toast.error("Move or delete this page's subpages first.");
     return;
   }
 
-  if (!confirm(`Delete "${page.title}" and its history? This can't be undone.`)) {
-    return;
-  }
+  confirming.remove = true;
+}
 
+function deletePage(tree: LiveView<Page>, page: Page, space: Space) {
   let parent = page.parentId ? findPage(tree, page.parentId) : undefined;
 
   try {
     tree.delete(page);
     redirect(parent ? pageUrl(parent) : `/s/${space.slug}`);
   } catch (err: any) {
-    menu.error = err.message;
+    toast.error(err.message);
   }
+}
+
+function crumbs(tree: LiveView<Page>, space: Space, page: Page): { label: string; href: string }[] {
+  return [
+    { label: space.name, href: `/s/${space.slug}` },
+    ...ancestors(tree, page).map((crumb) => ({ label: crumb.title, href: pageUrl(crumb) })),
+  ];
 }
 
 function isFirstSibling(tree: LiveView<Page>, page: Page): boolean {
@@ -259,7 +282,6 @@ function isLastSibling(tree: LiveView<Page>, page: Page): boolean {
   users: PresentUser[],
   private present: PresentUser[] = users,
   private draft: Draft = initialDraft,
-  private menu: MenuState = { error: "" },
 ) oninit={() => listener.on("notify", (e) => present = e.users)}>
   <head>
     <title>{findPage(tree, pageId)?.title ?? "Deleted page"} · {space.name} · lorebarn</title>
@@ -267,20 +289,19 @@ function isLastSibling(tree: LiveView<Page>, page: Page): boolean {
   </head>
   <body>
     <Layout spaces={spaces} activeSlug={space.slug} tree={tree} activePageId={pageId}>
-      <div e:if={!findPage(tree, pageId)} class="callout is-warning">
-        <div class="callout-title">This page was deleted</div>
-        <div class="callout-body">
+      <Alert e:if={!findPage(tree, pageId)} variant="warning" role="status">
+        <AlertTitle>This page was deleted</AlertTitle>
+        <AlertDescription>
           Someone removed it a moment ago. <a href={`/s/${space.slug}`}>Back to {space.name}</a>
-        </div>
-      </div>
+        </AlertDescription>
+      </Alert>
 
       <WikiPage e:else
                 tree={tree}
                 space={space}
                 page={findPage(tree, pageId)!}
                 present={present}
-                draft={draft}
-                menu={menu} />
+                draft={draft} />
     </Layout>
   </body>
 </html>
@@ -291,16 +312,10 @@ function isLastSibling(tree: LiveView<Page>, page: Page): boolean {
   page: Page,
   present: PresentUser[],
   draft: Draft,
-  menu: MenuState,
+  private confirming: Confirming = { discard: false, remove: false },
 )>
   <article class="wiki stack is-lg">
-    <nav class="wiki-crumbs row" aria-label="Breadcrumb">
-      <a href={`/s/${space.slug}`}>{space.name}</a>
-      <span e:for={crumb of ancestors(tree, page)} class="row gap-1-5">
-        <span class="sep">/</span>
-        <a href={pageUrl(crumb)}>{crumb.title}</a>
-      </span>
-    </nav>
+    <Breadcrumb items={crumbs(tree, space, page)} separatorText="/" class="wiki-crumbs" />
 
     <header class="stack is-sm">
       <div class="wiki-head">
@@ -313,43 +328,36 @@ function isLastSibling(tree: LiveView<Page>, page: Page): boolean {
                onkeydown={(e) => onEditorKeydown(e, tree, page, draft)}>
 
         <div class="wiki-actions row">
-          <div class="presence" aria-label={presenceLabel(present)}>
-            <span e:for={user of othersHere(present)}
-                  class={["presence-person", user.editing && "is-editing"]}
-                  title={presenceTitle(user)}>
-              <Avatar id={user.userId} name={user.userName} />
-            </span>
+          <div class="presence row" aria-label={presenceLabel(present)}>
+            <AvatarGroup e:if={othersHere(present).length > 0} label="On this page">
+              <Avatar e:for={user of othersHere(present)} id={user.userId} name={presenceTitle(user)}>
+                <AvatarBadge e:if={user.editing} tone="warning" label="Editing" />
+              </Avatar>
+            </AvatarGroup>
             <span class="presence-label">{presenceLabel(present)}</span>
           </div>
 
           <div e:if={!draft.editing} class="row gap-2">
-            <button class="is-primary" onclick={() => onEditClick(page, draft)}>Edit</button>
-            <a class="button" href={`${pageUrl(page)}/history`}>History</a>
+            <Button variant="primary" onclick={() => onEditClick(page, draft)}>Edit</Button>
+            <Button href={`${pageUrl(page)}/history`}>History</Button>
 
-            <details class="page-menu">
-              <summary class="button is-ghost" aria-label="Page options">
-                <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="3" cy="8" r="1.4" fill="currentColor"/><circle cx="8" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/></svg>
-              </summary>
+            <DropdownMenu align="end" label="Page options">
+              <Button slot="trigger" variant="ghost" icon label="Page options"><Icon name="more-horizontal" /></Button>
 
-              <div class="page-menu-panel stack is-sm">
-                <button class="is-ghost is-sm is-block" onclick={() => onAddSubpageClick(tree, page)}>Add a subpage</button>
-                <button class="is-ghost is-sm is-block" disabled={isFirstSibling(tree, page)} onclick={() => onShift(tree, page, -1, menu)}>Move up</button>
-                <button class="is-ghost is-sm is-block" disabled={isLastSibling(tree, page)} onclick={() => onShift(tree, page, 1, menu)}>Move down</button>
+              <DropdownMenuItem onSelect={() => onAddSubpageClick(tree, page)}>Add a subpage</DropdownMenuItem>
+              <DropdownMenuItem disabled={isFirstSibling(tree, page)} onSelect={() => onShift(tree, page, -1)}>Move up</DropdownMenuItem>
+              <DropdownMenuItem disabled={isLastSibling(tree, page)} onSelect={() => onShift(tree, page, 1)}>Move down</DropdownMenuItem>
 
-                <div class="field">
-                  <label class="text-sm" for="move-under">Move under</label>
-                  <select id="move-under" class="is-sm" onchange={(e) => onMoveUnder(tree, page, (e.target as HTMLSelectElement).value, menu)}>
-                    <option value="" selected={!page.parentId}>{space.name} (top level)</option>
-                    <option e:for={choice of parentChoices(tree, page)} value={choice.id} selected={choice.id === page.parentId}>
-                      {choice.label}
-                    </option>
-                  </select>
-                </div>
+              <DropdownMenuSub label="Move under">
+                <DropdownMenuRadioGroup value={page.parentId ?? ""} label="Move under" onValueChange={(value) => onMoveUnder(tree, page, value)}>
+                  <DropdownMenuRadioItem value="">{space.name} (top level)</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem e:for={choice of parentChoices(tree, page)} value={choice.id}>{choice.label}</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuSub>
 
-                <button class="is-danger is-sm is-block" onclick={() => onDeleteClick(tree, page, space, menu)}>Delete page</button>
-                <p e:if={menu.error} class="text-sm text-danger" role="alert">{menu.error}</p>
-              </div>
-            </details>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onSelect={() => onDeleteClick(tree, page, confirming)}>Delete page</DropdownMenuItem>
+            </DropdownMenu>
           </div>
         </div>
       </div>
@@ -368,7 +376,12 @@ function isLastSibling(tree: LiveView<Page>, page: Page): boolean {
     <div e:if={!draft.editing} class="stack is-lg">
       <div e:if={page.body.trim()} class="markdown prose">{raw(renderMarkdown(page.body))}</div>
 
-      <p e:else class="wiki-empty">This page is empty. <button class="is-sm" onclick={() => onEditClick(page, draft)}>Start writing</button></p>
+      <Empty e:else variant="outline" title="This page is empty">
+        <Icon slot="icon" name="file-text" />
+        <EmptyContent>
+          <Button size="sm" onclick={() => onEditClick(page, draft)}>Start writing</Button>
+        </EmptyContent>
+      </Empty>
 
       <section e:if={childrenOf(tree, page.id).length > 0} class="stack is-sm">
         <h2 class="text-lg">Subpages</h2>
@@ -384,20 +397,18 @@ function isLastSibling(tree: LiveView<Page>, page: Page): boolean {
     </div>
 
     <div e:else class="stack">
-      <div e:if={hasConflict(page, draft)} class="callout is-warning" role="alert">
-        <div class="callout-title">{page.updatedByName ?? "Someone"} saved version {page.version} while you were editing</div>
-        <div class="callout-body stack is-sm">
-          <span>Load their version to start again from it, or keep your draft and save over it. Either way, both stay in the history.</span>
+      <Alert e:if={hasConflict(page, draft)} variant="warning">
+        <AlertTitle>{page.updatedByName ?? "Someone"} saved version {page.version} while you were editing</AlertTitle>
+        <AlertDescription>
+          <p>Load their version to start again from it, or keep your draft and save over it. Either way, both stay in the history.</p>
           <div class="row gap-2">
-            <button class="is-sm" onclick={() => onTakeTheirs(page, draft)}>Load their version</button>
-            <button class="is-sm is-ghost" onclick={() => onKeepMine(page, draft)}>Keep my draft</button>
+            <Button size="sm" onclick={() => onTakeTheirs(page, draft)}>Load their version</Button>
+            <Button size="sm" variant="ghost" onclick={() => onKeepMine(page, draft)}>Keep my draft</Button>
           </div>
-        </div>
-      </div>
+        </AlertDescription>
+      </Alert>
 
-      <div e:if={draft.error && !hasConflict(page, draft)} class="callout is-danger" role="alert">
-        <div class="callout-body">{draft.error}</div>
-      </div>
+      <Alert e:if={draft.error && !hasConflict(page, draft)} variant="danger" description={draft.error} />
 
       <div class="wiki-editor">
         <div class="stack is-xs">
@@ -414,7 +425,7 @@ function isLastSibling(tree: LiveView<Page>, page: Page): boolean {
           <span class="wiki-pane-label">Preview</span>
           <div class="wiki-preview">
             <div e:if={draft.body.trim()} class="markdown prose">{raw(renderMarkdown(draft.body))}</div>
-            <p e:else class="wiki-empty">Nothing to preview yet.</p>
+            <Empty e:else description="Nothing to preview yet." />
           </div>
         </div>
       </div>
@@ -424,14 +435,29 @@ function isLastSibling(tree: LiveView<Page>, page: Page): boolean {
           {isDirty(page, draft) ? "Unsaved changes" : "No changes yet"} · ⌘S to save
         </span>
         <div class="row gap-2">
-          <button class="is-ghost" onclick={() => onCancelClick(page, draft)}>Cancel</button>
-          <button class={["is-primary", draft.saving && "is-loading"]}
-                  disabled={draft.saving || hasConflict(page, draft)}
+          <Button variant="ghost" onclick={() => onCancelClick(page, draft, confirming)}>Cancel</Button>
+          <Button variant="primary"
+                  loading={draft.saving}
+                  disabled={hasConflict(page, draft)}
                   onclick={() => onSave(tree, page, draft)}>
             Save version {page.version + 1}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
+
+    <AlertDialog open={confirming.discard} title="Discard your unsaved changes?" size="sm">
+      <AlertDialogFooter>
+        <AlertDialogCancel>Keep editing</AlertDialogCancel>
+        <AlertDialogAction variant="danger" onclick={() => stopEditing(page, draft)}>Discard</AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialog>
+
+    <AlertDialog open={confirming.remove} title={`Delete "${page.title}" and its history?`} description="This can't be undone." size="sm">
+      <AlertDialogFooter>
+        <AlertDialogCancel>Cancel</AlertDialogCancel>
+        <AlertDialogAction variant="danger" onclick={() => deletePage(tree, page, space)}>Delete page</AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialog>
   </article>
 </WikiPage>
