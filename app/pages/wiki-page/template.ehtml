@@ -330,7 +330,7 @@ function isLastSibling(tree: LiveView<Page>, page: Page): boolean {
         <div class="wiki-actions row">
           <div class="presence row" aria-label={presenceLabel(present)}>
             <AvatarGroup e:if={othersHere(present).length > 0} label="On this page">
-              <Avatar e:for={user of othersHere(present)} id={user.userId} name={presenceTitle(user)}>
+              <Avatar e:for={user of othersHere(present)} id={user.userId} name={user.userName} title={presenceTitle(user)}>
                 <AvatarBadge e:if={user.editing} tone="warning" label="Editing" />
               </Avatar>
             </AvatarGroup>
