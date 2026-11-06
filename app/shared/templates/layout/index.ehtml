@@ -8,6 +8,7 @@ import {
 } from "@elements/ui/sidebar";
 import { Button } from "@elements/ui/button";
 import { Icon } from "@elements/ui/icon";
+import { Toaster } from "@elements/ui/toast";
 import { Logo } from "#app/shared/templates/logo";
 import { Avatar } from "#app/shared/templates/avatar";
 import { signout } from "#app/shared/services/auth";
@@ -130,4 +131,6 @@ function onNewPageClick(tree: LiveView<Page>, space: Space) {
       <slot/>
     </SidebarInset>
   </SidebarProvider>
+
+  <Toaster richColors />
 </Layout>

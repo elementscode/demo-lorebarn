@@ -7,5 +7,7 @@ import { avatarHue, initials } from "#app/shared/services/format";
             fallback={initials(name)}
             size={small ? "sm" : "md"}
             class="is-hued"
-            attrs={{ style: `--hue: ${avatarHue(id)}`, title: name }} />
+            attrs={{ style: `--hue: ${avatarHue(id)}`, title: name }}>
+    <slot/>
+  </UiAvatar>
 </Avatar>
