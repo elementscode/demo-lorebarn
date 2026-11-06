@@ -30,9 +30,8 @@
   font-size: var(--text-xs);
 }
 
-.members-list select {
+.member-role {
   flex: none;
-  width: 8rem;
 }
 
 .invite-form {
@@ -40,12 +39,6 @@
   grid-template-columns: minmax(0, 1fr) 9rem auto;
   gap: var(--space-3);
   align-items: end;
-}
-
-.invite-link {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  word-break: break-all;
 }
 
 @media (max-width: 40rem) {

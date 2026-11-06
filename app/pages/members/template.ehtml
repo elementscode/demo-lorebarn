@@ -4,6 +4,14 @@ import favicon from "#app/shared/assets/favicons/favicon.svg";
 import InviteEmail from "#app/emails/invite";
 import { Layout } from "#app/shared/templates/layout";
 import { Avatar } from "#app/shared/templates/avatar";
+import { Alert } from "@elements/ui/alert";
+import { AlertDialog, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@elements/ui/alert-dialog";
+import { Badge } from "@elements/ui/badge";
+import { Button } from "@elements/ui/button";
+import { Card, CardContent } from "@elements/ui/card";
+import { Field } from "@elements/ui/field";
+import { Input } from "@elements/ui/input";
+import { NativeSelect } from "@elements/ui/native-select";
 import { Space } from "#app/shared/services/pages";
 import { isEmail, normalizeEmail, requireAdmin } from "#app/shared/services/auth";
 import { timeAgo } from "#app/shared/services/format";
@@ -123,10 +131,12 @@ function onInviteSubmit(form: InviteForm, roster: { value: Roster }) {
   form.busy = false;
 }
 
-function onRevokeClick(invite: PendingInvite, roster: { value: Roster }) {
-  if (confirm(`Revoke the invite for ${invite.email}?`)) {
-    roster.value = revokeInvite(invite.id);
+function onRevokeConfirm(revoking: { invite: PendingInvite | null }, roster: { value: Roster }) {
+  if (revoking.invite) {
+    roster.value = revokeInvite(revoking.invite.id);
   }
+
+  revoking.invite = null;
 }
 
 function onRoleChange(member: Member, value: string, roster: { value: Roster }, form: InviteForm) {
@@ -155,6 +165,7 @@ function onCopyClick(appUrl: string, invite: PendingInvite, copied: { id: string
   private roster: { value: Roster } = { value: initial },
   private form: InviteForm = { email: "", role: "member", error: "", notice: "", busy: false },
   private copied: { id: string } = { id: "" },
+  private revoking: { open: boolean; invite: PendingInvite | null } = { open: false, invite: null },
 )>
   <head>
     <title>Members · lorebarn</title>
@@ -168,37 +179,27 @@ function onCopyClick(appUrl: string, invite: PendingInvite, copied: { id: string
           <p class="text-ink-soft">Invite teammates by email. Admins can invite people and change roles.</p>
         </header>
 
-        <section class="card">
-          <div class="card-head">
-            <h2 class="text-base">Invite someone</h2>
-          </div>
-          <div class="card-body stack">
+        <Card title="Invite someone" level={2} size="sm">
+          <CardContent class="stack">
             <form class="invite-form" onsubmit={() => onInviteSubmit(form, roster)}>
-              <div class="field">
-                <label for="invite-email">Email</label>
-                <input id="invite-email" type="email" value={form.email} placeholder="teammate@company.com" autocomplete="off" required>
-              </div>
+              <Field label="Email" required reserveError={false}>
+                <Input type="email" value={form.email} placeholder="teammate@company.com" attrs={{ autocomplete: "off" }} />
+              </Field>
 
-              <div class="field">
-                <label for="invite-role">Role</label>
-                <select id="invite-role" value={form.role}>
+              <Field label="Role" reserveError={false}>
+                <NativeSelect value={form.role} block>
                   <option value="member">Member</option>
                   <option value="admin">Admin</option>
-                </select>
-              </div>
+                </NativeSelect>
+              </Field>
 
-              <button type="submit" class={["is-primary", form.busy && "is-loading"]} disabled={form.busy}>Send invite</button>
+              <Button type="submit" variant="primary" loading={form.busy}>Send invite</Button>
             </form>
 
-            <div e:if={form.error} class="callout is-danger" role="alert">
-              <div class="callout-body">{form.error}</div>
-            </div>
-
-            <div e:if={form.notice && !form.error} class="callout is-success" role="status">
-              <div class="callout-body">{form.notice}</div>
-            </div>
-          </div>
-        </section>
+            <Alert e:if={form.error} variant="danger" description={form.error} />
+            <Alert e:if={form.notice && !form.error} variant="success" role="status" description={form.notice} />
+          </CardContent>
+        </Card>
 
         <section e:if={roster.value.invites.length > 0} class="stack is-sm">
           <h2 class="text-lg">Pending invites</h2>
@@ -208,16 +209,16 @@ function onCopyClick(appUrl: string, invite: PendingInvite, copied: { id: string
                 <span>{invite.email}</span>
                 <small>{invite.role} · invited by {invite.invitedByName} {timeAgo(invite.createdAt)}</small>
               </span>
-              <button class="is-sm" onclick={() => onCopyClick(appUrl, invite, copied)}>
+              <Button size="sm" onclick={() => onCopyClick(appUrl, invite, copied)}>
                 {copied.id === invite.id ? "Copied" : "Copy link"}
-              </button>
-              <button class="is-sm is-ghost" onclick={() => onRevokeClick(invite, roster)}>Revoke</button>
+              </Button>
+              <Button size="sm" variant="ghost" onclick={() => { revoking.invite = invite; revoking.open = true; }}>Revoke</Button>
             </li>
           </ul>
         </section>
 
         <section class="stack is-sm">
-          <h2 class="text-lg">People <span class="pill">{roster.value.members.length}</span></h2>
+          <h2 class="text-lg">People <Badge variant="secondary">{String(roster.value.members.length)}</Badge></h2>
           <ul class="card members-list plain-list">
             <li e:for={member of roster.value.members}>
               <Avatar id={member.id} name={member.name} />
@@ -225,15 +226,26 @@ function onCopyClick(appUrl: string, invite: PendingInvite, copied: { id: string
                 <span>{member.name} <span e:if={member.id === session.get("userId")} class="text-ink-soft text-sm">(you)</span></span>
                 <small>{member.email} · joined {timeAgo(member.createdAt)}</small>
               </span>
-              <select class="is-sm"
-                      aria-label={`Role for ${member.name}`}
-                      onchange={(e) => onRoleChange(member, (e.target as HTMLSelectElement).value, roster, form)}>
-                <option value="member" selected={member.role === "member"}>Member</option>
-                <option value="admin" selected={member.role === "admin"}>Admin</option>
-              </select>
+              <NativeSelect size="sm"
+                            value={member.role}
+                            class="member-role"
+                            attrs={{ "aria-label": `Role for ${member.name}` }}
+                            onchange={(e) => onRoleChange(member, (e.target as HTMLSelectElement).value, roster, form)}>
+                <option value="member">Member</option>
+                <option value="admin">Admin</option>
+              </NativeSelect>
             </li>
           </ul>
         </section>
+
+        <AlertDialog open={revoking.open}
+                     title={`Revoke the invite for ${revoking.invite?.email ?? ""}?`}
+                     size="sm">
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="danger" onclick={() => onRevokeConfirm(revoking, roster)}>Revoke</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialog>
       </div>
     </Layout>
   </body>
