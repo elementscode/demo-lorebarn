@@ -17,8 +17,8 @@
 {
   package: {
     dependencies: {
-      "@elements/app": "latest",
-      "@elements/ui": "latest",
+      "@elements/app": "^0",
+      "@elements/ui": "^0",
       "@types/node": "latest",
       "diff": "^9.0.0",
       "marked": "^18.0.14",
